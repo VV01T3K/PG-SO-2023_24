@@ -13,7 +13,8 @@
 # * https://yad-guide.ingk.se/
 
 # ! check for dependencies
-set -euf -o pipefail
+# nie może być chyba set -e bo yad się psuje
+set -uf -o pipefail
 LOGS="logs.txt"
 echo "" >$LOGS
 exec 2>>$LOGS
@@ -53,17 +54,61 @@ else
     echo "No video files were selected."
 fi
 
+getDetails() {
+    local file="${videos[$1]}"
+    local detail=$2
+    case $detail in
+    filename)
+        basename -- "$file" | cut -f 1 -d '.'
+        ;;
+    extension)
+        echo "${file##*.}"
+        ;;
+    duration)
+        duration_seconds=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+        hours=$(echo "$duration_seconds" | awk '{printf "%02d", $1/3600}')
+        minutes=$(echo "$duration_seconds" | awk '{printf "%02d", ($1%3600)/60}')
+        seconds=$(echo "$duration_seconds" | awk '{printf "%02d", $1%60}')
+        echo "$hours:$minutes:$seconds"
+        ;;
+    format)
+        ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 "$file"
+        ;;
+    esac
+}
+
 args=()
+index=0
 for file in "${videos[@]}"; do
-    filename=$(basename -- "$file")
-    filename="${filename%.*}"
-    extension="${file##*.}"
-    path=$(dirname -- "$file")
-    args+=("$filename" "$extension" "$path")
+    filename=$(getDetails "$index" filename)
+    format=$(getDetails "$index" format)
+    duration=$(getDetails "$index" duration)
+    args+=("$index" "$filename" "$duration" "$format")
+    index=$((index + 1))
 done
-yad --list \
-    --width=302 --height=123 \
-    --column=Filename \
-    --column=Extension \
-    --column=Path \
-    "${args[@]}"
+
+id=$(yad --list \
+    --title="Lista plików" \
+    --width=502 --height=523 \
+    --column=ID:NUM \
+    --column=NAME:text \
+    --column=Duration:text \
+    --column=FORMAT:text \
+    --button=gtk-ok:0 \
+    --button=gtk-cancel:1 \
+    --button=Preview:2 \
+    --hide-column=1 \
+    --print-column=1 \
+    "${args[@]}" | sed 's/.$//')
+case $? in
+0)
+    echo "OK"
+    ;;
+1)
+    echo "CANCEL"
+    ;;
+2)
+    # ffplay -x 800 -y 600 "${videos[$id]}"
+    mpv "${videos[$id]}" >>"$LOGS" 2>&1
+    ;;
+esac
