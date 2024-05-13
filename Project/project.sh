@@ -13,9 +13,10 @@
 # * https://yad-guide.ingk.se/
 
 # ! check for dependencies
+set -euf -o pipefail
 LOGS="logs.txt"
 echo "" >$LOGS
-set -euf -o pipefail
+exec 2>>$LOGS
 declare -a videos
 # New array to hold the details
 declare -a videoDetails
@@ -38,7 +39,7 @@ while getopts ${OPTSTRING} opt; do
 done
 
 # Capture the output of the yad command and check for success directly
-if selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple --file-filter='Wideo | *.mp4 *.avi' 2>>$LOGS); then
+if selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple --file-filter='Wideo | *.mp4 *.avi'); then
     # Replace '|' with newline to handle multiple file selection
     IFS='|' read -ra ADDR <<<"$selected_files"
     for i in "${ADDR[@]}"; do
@@ -69,5 +70,5 @@ for detail in "${videoDetails[@]}"; do
         --column=Name \
         --column=Extension \
         --column=Path \
-        William Bill 40 Richard Dick 69 2>>$LOGS
+        William Bill 40 Richard Dick 69
 done
