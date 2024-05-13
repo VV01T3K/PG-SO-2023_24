@@ -22,11 +22,19 @@ declare -a videos
 
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
-supported_video_formats_conctated="|mp4|mov|avi|webm|"
-supported_audio_formats_conctated="|mp3|wav|flac|ogg|"
+
+isInArray() {
+    local element=$1
+    local array=("${@:2}")
+    for e in "${array[@]}"; do
+        if [ "$e" == "$element" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
 
 OPTSTRING=":hv"
-
 while getopts ${OPTSTRING} opt; do
     case ${opt} in
     h)
@@ -114,17 +122,31 @@ convert() {
         echo "Przerwanie konwersji..."
         kill "$ffmpeg_pid" 2>/dev/null
         rm -f ffmpeg_progress.log
+        rm -f "$output_file"
+        yad --title="Błąd konwersji" --text="Wystąpił błąd podczas konwersji pliku." --button=gtk-stop:0
         exit 1
     }
 
     local file="${videos[$1]}"
     local target_format
+    local format_options=""
+    local first=true
+    for format in "${supported_video_formats[@]}"; do
+        if $first; then
+            format_options+="TRUE $format "
+            first=false
+        else
+            format_options+="FALSE $format "
+        fi
+    done
+
+    # shellcheck disable=SC2086
     target_format=$(yad --title="Wybierz format" \
         --width=300 --height=300 \
         --list --radiolist \
         --print-column=2 --separator= \
         --column=Select:BOOL \
-        --column=Format:TEXT TRUE mp4 FALSE avi FALSE mkv)
+        --column=Format:TEXT $format_options)
 
     if [ -z "$target_format" ] || [ "${file##*.}" = "$target_format" ]; then
         echo "No conversion needed."
@@ -135,8 +157,9 @@ convert() {
     local duration
     duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
     duration=${duration%.*}
-    ffmpeg -i "$file" "$output_file" 2>ffmpeg_progress.log &
+    ffmpeg -i "$file" "$output_file" -y 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
+    local conversion_complete=0
     (
         while kill -0 $ffmpeg_pid 2>/dev/null; do
             current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
@@ -150,7 +173,15 @@ convert() {
         done
         echo "# Konwersja zakończona"
         echo "100"
-    ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close
+    ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
+
+    if [ $conversion_complete -ne 1 ]; then
+        echo "Konwersja nie została zakończona pomyślnie."
+        kill "$ffmpeg_pid" 2>/dev/null
+        rm -f "$output_file"
+        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-exit:0
+        exit 1
+    fi
 
     if yad --title="Konwersja zakończona" --text="Plik został zapisany jako $output_file" --button=gtk-ok:0; then
         true # Placeholder for potential success operations
@@ -162,8 +193,8 @@ convert() {
 }
 
 id=$(yad --list \
-    --title="Lista plików" \
-    --width=602 --height=523 \
+    --title="Lista wczytanych plików" \
+    --width=600 --height=500 \
     --column=ID:NUM \
     --column=NAME:text \
     --column=Duration:text \
