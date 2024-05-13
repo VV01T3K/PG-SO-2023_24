@@ -18,8 +18,8 @@ set -uf -o pipefail
 LOGS="out.log"
 echo "" >$LOGS
 exec 2>>$LOGS
-declare -a videos
 
+declare -a videos
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
 
@@ -106,24 +106,14 @@ getDetails() {
     esac
 }
 
-args=()
-index=0
-for file in "${videos[@]}"; do
-    filename=$(getDetails "$index" filename)
-    format=$(getDetails "$index" format)
-    duration=$(getDetails "$index" duration)
-    args+=("$index" "$filename" "$duration" "$format")
-    index=$((index + 1))
-done
 convert() {
     trap 'cleanup_and_exit' SIGINT
-
     cleanup_and_exit() {
         echo "Przerwanie konwersji..."
         kill "$ffmpeg_pid" 2>/dev/null
         rm -f ffmpeg_progress.log
-        rm -f "$output_file"
-        yad --title="Błąd konwersji" --text="Wystąpił błąd podczas konwersji pliku." --button=gtk-stop:0
+        rm -f "$tmp_file"
+        yad --title="Błąd konwersji" --text="Wystąpił błąd podczas konwersji pliku." --button=gtk-close:0
         exit 1
     }
 
@@ -154,10 +144,12 @@ convert() {
     fi
 
     local output_file="${file%.*}.$target_format"
+    local tmp_file
+    tmp_file="$(dirname "$file")/convertingTEMPiqbc217t69c63gq3o73c.$target_format"
     local duration
     duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
     duration=${duration%.*}
-    ffmpeg -i "$file" "$output_file" -y 2>ffmpeg_progress.log &
+    ffmpeg -i "$file" "$tmp_file" 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
     local conversion_complete=0
     (
@@ -175,49 +167,73 @@ convert() {
         echo "100"
     ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
 
+    # After conversion is complete
     if [ $conversion_complete -ne 1 ]; then
         echo "Konwersja nie została zakończona pomyślnie."
         kill "$ffmpeg_pid" 2>/dev/null
-        rm -f "$output_file"
-        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-exit:0
+        rm -f "$tmp_file"
+        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
         exit 1
     fi
 
-    if yad --title="Konwersja zakończona" --text="Plik został zapisany jako $output_file" --button=gtk-ok:0; then
-        true # Placeholder for potential success operations
-    else
-        yad --title="Błąd konwersji" --text="Wystąpił błąd podczas konwersji pliku." --button=gtk-ok:0
+    # Use yad to save the file
+    local save_path
+    save_path=$(yad --file --save --filename="$output_file")
+    if [ -z "$save_path" ]; then
+        echo "Nie wybrano miejsca zapisu."
+        rm -f "$tmp_file"
+        exit 1
     fi
 
-    rm ffmpeg_progress.log
+    mv "$tmp_file" "$save_path"
+    if ! isInArray "$save_path" "${videos[@]}"; then
+        videos+=("$save_path")
+    fi
+
+    if yad --title="Konwersja zakończona" --text="Plik został zapisany jako $save_path" --button=gtk-ok:0; then
+        menu
+    fi
 }
 
-id=$(yad --list \
-    --title="Lista wczytanych plików" \
-    --width=600 --height=500 \
-    --column=ID:NUM \
-    --column=NAME:text \
-    --column=Duration:text \
-    --column=FORMAT:text \
-    --button=gtk-ok:2 \
-    --button=gtk-cancel:1 \
-    --button=gtk-media-play:0 \
-    --button=Convert:3 \
-    --hide-column=1 \
-    --print-column=1 --separator= \
-    "${args[@]}")
-case $? in
-0)
-    # ffplay -x 800 -y 600 "${videos[$id]}"
-    mpv "${videos[$id]}" >>"$LOGS" 2>&1
-    ;;
-1)
-    echo "CANCEL"
-    ;;
-2)
-    echo "OK"
-    ;;
-3)
-    convert "$id"
-    ;;
-esac
+menu() {
+    args=()
+    index=0
+    for file in "${videos[@]}"; do
+        filename=$(getDetails "$index" filename)
+        format=$(getDetails "$index" format)
+        duration=$(getDetails "$index" duration)
+        args+=("$index" "$filename" "$duration" "$format")
+        index=$((index + 1))
+    done
+    id=$(yad --list \
+        --title="Lista wczytanych plików" \
+        --width=600 --height=500 \
+        --column=ID:NUM \
+        --column=NAME:text \
+        --column=Duration:text \
+        --column=FORMAT:text \
+        --button=gtk-ok:2 \
+        --button=gtk-cancel:1 \
+        --button=gtk-media-play:0 \
+        --button=Convert:3 \
+        --hide-column=1 \
+        --print-column=1 --separator= \
+        "${args[@]}")
+    case $? in
+    0)
+        # ffplay -x 800 -y 600 "${videos[$id]}"
+        mpv "${videos[$id]}" >>"$LOGS" 2>&1
+        ;;
+    1)
+        echo "CANCEL"
+        ;;
+    2)
+        echo "OK"
+        ;;
+    3)
+        convert "$id"
+        ;;
+    esac
+}
+
+menu
