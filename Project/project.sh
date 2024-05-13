@@ -18,8 +18,6 @@ LOGS="logs.txt"
 echo "" >$LOGS
 exec 2>>$LOGS
 declare -a videos
-# New array to hold the details
-declare -a videoDetails
 
 OPTSTRING=":hv"
 
@@ -55,25 +53,17 @@ else
     echo "No video files were selected."
 fi
 
-# for file in "${videos[@]}"; do
-#     # Get the file name without the extension
-#     filename=$(basename -- "$file")
-#     filename="${filename%.*}"
-#     # Get the file extension
-#     extension="${file##*.}"
-#     # Get the file path
-#     path=$(dirname -- "$file")
-#     # Concatenate details into a string and add to the new array
-#     videoDetails+=("$filename:$extension:$path")
-# done
-
-# # Loop through all video details instead of accessing them directly
-# for detail in "${videoDetails[@]}"; do
-#     IFS=':' read -r name ext path <<<"$detail"
-#     echo "Name: $name, Extension: $ext, Path: $path"
-#     yad --list \
-#         --column=Name \
-#         --column=Extension \
-#         --column=Path \
-#         William Bill 40 Richard Dick 69
-# done
+args=()
+for file in "${videos[@]}"; do
+    filename=$(basename -- "$file")
+    filename="${filename%.*}"
+    extension="${file##*.}"
+    path=$(dirname -- "$file")
+    args+=("$filename" "$extension" "$path")
+done
+yad --list \
+    --width=302 --height=123 \
+    --column=Filename \
+    --column=Extension \
+    --column=Path \
+    "${args[@]}"
