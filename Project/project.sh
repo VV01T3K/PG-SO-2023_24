@@ -38,37 +38,42 @@ while getopts ${OPTSTRING} opt; do
     esac
 done
 
-# Capture the output of the yad command and check for success directly
-if selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple --file-filter='Wideo | *.mp4 *.avi'); then
-    # Replace '|' with newline to handle multiple file selection
-    IFS='|' read -ra ADDR <<<"$selected_files"
-    for i in "${ADDR[@]}"; do
-        # Add each file to the videos array
+selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple --file-filter='Wideo | *.mp4 *.avi')
+IFS='|' read -ra ADDR <<<"$selected_files"
+added_file_flag=0
+for i in "${ADDR[@]}"; do
+    if [ ! -d "$i" ]; then
         videos+=("$i")
+        added_file_flag=1
+    fi
+done
+if [ "$added_file_flag" -eq 1 ]; then
+    for file in "${videos[@]}"; do
+        echo "$file"
     done
 else
-    echo "No files were selected."
+    echo "No video files were selected."
 fi
 
-for file in "${videos[@]}"; do
-    # Get the file name without the extension
-    filename=$(basename -- "$file")
-    filename="${filename%.*}"
-    # Get the file extension
-    extension="${file##*.}"
-    # Get the file path
-    path=$(dirname -- "$file")
-    # Concatenate details into a string and add to the new array
-    videoDetails+=("$filename:$extension:$path")
-done
+# for file in "${videos[@]}"; do
+#     # Get the file name without the extension
+#     filename=$(basename -- "$file")
+#     filename="${filename%.*}"
+#     # Get the file extension
+#     extension="${file##*.}"
+#     # Get the file path
+#     path=$(dirname -- "$file")
+#     # Concatenate details into a string and add to the new array
+#     videoDetails+=("$filename:$extension:$path")
+# done
 
-# Loop through all video details instead of accessing them directly
-for detail in "${videoDetails[@]}"; do
-    IFS=':' read -r name ext path <<<"$detail"
-    echo "Name: $name, Extension: $ext, Path: $path"
-    yad --list \
-        --column=Name \
-        --column=Extension \
-        --column=Path \
-        William Bill 40 Richard Dick 69
-done
+# # Loop through all video details instead of accessing them directly
+# for detail in "${videoDetails[@]}"; do
+#     IFS=':' read -r name ext path <<<"$detail"
+#     echo "Name: $name, Extension: $ext, Path: $path"
+#     yad --list \
+#         --column=Name \
+#         --column=Extension \
+#         --column=Path \
+#         William Bill 40 Richard Dick 69
+# done
