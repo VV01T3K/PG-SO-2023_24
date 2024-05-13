@@ -20,6 +20,11 @@ echo "" >$LOGS
 exec 2>>$LOGS
 declare -a videos
 
+supported_video_formats=("mp4" "mov" "avi" "webm")
+supported_audio_formats=("mp3" "wav" "flac" "ogg")
+supported_video_formats_conctated="|mp4|mov|avi|webm|"
+supported_audio_formats_conctated="|mp3|wav|flac|ogg|"
+
 OPTSTRING=":hv"
 
 while getopts ${OPTSTRING} opt; do
@@ -37,7 +42,20 @@ while getopts ${OPTSTRING} opt; do
     esac
 done
 
-selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple --file-filter='Wideo | *.mp4 *.avi')
+selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple \
+    --file-filter="$(
+        echo -n "Wideo | "
+        for format in "${supported_video_formats[@]}"; do
+            echo -n "*.$format "
+        done
+    )" \
+    --file-filter="$(
+        echo -n "Audio | "
+        for format in "${supported_audio_formats[@]}"; do
+            echo -n "*.$format "
+        done
+    )")
+
 IFS='|' read -ra ADDR <<<"$selected_files"
 added_file_flag=0
 for i in "${ADDR[@]}"; do
