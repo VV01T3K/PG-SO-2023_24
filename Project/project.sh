@@ -180,7 +180,7 @@ convert() {
     local save_path
     save_path=$(yad --file --save --filename="$output_file")
     if [ -z "$save_path" ]; then
-        echo "Nie wybrano miejsca zapisu."
+        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
         rm -f "$tmp_file"
         exit 1
     fi
@@ -190,7 +190,7 @@ convert() {
         videos+=("$save_path")
     fi
 
-    if yad --title="Konwersja zakończona" --text="Plik został zapisany jako $save_path" --button=gtk-ok:0; then
+    if yad --title="Konwersja zakończona" --text="Plik został zapisany" --button=gtk-ok:0; then
         menu
     fi
 }
@@ -223,6 +223,7 @@ menu() {
     0)
         # ffplay -x 800 -y 600 "${videos[$id]}"
         mpv "${videos[$id]}" >>"$LOGS" 2>&1
+        menu
         ;;
     1)
         echo "CANCEL"
