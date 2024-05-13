@@ -1,0 +1,7 @@
+#!/bin/bash
+#echo Podaj bezwzględną ścieżke do katalogu
+#read path
+
+
+
+ls $1
