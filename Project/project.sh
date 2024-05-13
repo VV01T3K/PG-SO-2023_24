@@ -15,7 +15,7 @@
 # ! check for dependencies
 # nie może być chyba set -e bo yad się psuje
 set -uf -o pipefail
-LOGS="logs.txt"
+LOGS="out.log"
 echo "" >$LOGS
 exec 2>>$LOGS
 declare -a videos
@@ -54,6 +54,9 @@ else
     echo "No video files were selected."
 fi
 
+# * The `getDetails()` function in the provided shell script is responsible for extracting specific
+# * details about a video file. It takes two parameters: the index of the video file in the `videos`
+# * array and the specific detail to retrieve (filename, extension, duration, or format).
 getDetails() {
     local file="${videos[$1]}"
     local detail=$2
@@ -86,29 +89,86 @@ for file in "${videos[@]}"; do
     args+=("$index" "$filename" "$duration" "$format")
     index=$((index + 1))
 done
+convert() {
+    trap 'cleanup_and_exit' SIGINT
+
+    cleanup_and_exit() {
+        echo "Przerwanie konwersji..."
+        kill "$ffmpeg_pid" 2>/dev/null
+        rm -f ffmpeg_progress.log
+        exit 1
+    }
+
+    local file="${videos[$1]}"
+    local target_format
+    target_format=$(yad --title="Wybierz format" \
+        --width=300 --height=300 \
+        --list --radiolist \
+        --print-column=2 --separator= \
+        --column=Select:BOOL \
+        --column=Format:TEXT TRUE mp4 FALSE avi FALSE mkv)
+
+    if [ -z "$target_format" ] || [ "${file##*.}" = "$target_format" ]; then
+        echo "No conversion needed."
+        return
+    fi
+
+    local output_file="${file%.*}.$target_format"
+    local duration
+    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+    duration=${duration%.*}
+    ffmpeg -i "$file" "$output_file" 2>ffmpeg_progress.log &
+    ffmpeg_pid=$!
+    (
+        while kill -0 $ffmpeg_pid 2>/dev/null; do
+            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+            hours=$(echo "$current_time" | cut -d':' -f1)
+            minutes=$(echo "$current_time" | cut -d':' -f2)
+            seconds=$(echo "$current_time" | cut -d':' -f3)
+            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+            progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
+            echo "$progress"
+            sleep 1
+        done
+        echo "# Konwersja zakończona"
+        echo "100"
+    ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close
+
+    if yad --title="Konwersja zakończona" --text="Plik został zapisany jako $output_file" --button=gtk-ok:0; then
+        true # Placeholder for potential success operations
+    else
+        yad --title="Błąd konwersji" --text="Wystąpił błąd podczas konwersji pliku." --button=gtk-ok:0
+    fi
+
+    rm ffmpeg_progress.log
+}
 
 id=$(yad --list \
     --title="Lista plików" \
-    --width=502 --height=523 \
+    --width=602 --height=523 \
     --column=ID:NUM \
     --column=NAME:text \
     --column=Duration:text \
     --column=FORMAT:text \
-    --button=gtk-ok:0 \
+    --button=gtk-ok:2 \
     --button=gtk-cancel:1 \
-    --button=Preview:2 \
+    --button=gtk-media-play:0 \
+    --button=Convert:3 \
     --hide-column=1 \
-    --print-column=1 \
-    "${args[@]}" | sed 's/.$//')
+    --print-column=1 --separator= \
+    "${args[@]}")
 case $? in
 0)
-    echo "OK"
+    # ffplay -x 800 -y 600 "${videos[$id]}"
+    mpv "${videos[$id]}" >>"$LOGS" 2>&1
     ;;
 1)
     echo "CANCEL"
     ;;
 2)
-    # ffplay -x 800 -y 600 "${videos[$id]}"
-    mpv "${videos[$id]}" >>"$LOGS" 2>&1
+    echo "OK"
+    ;;
+3)
+    convert "$id"
     ;;
 esac
