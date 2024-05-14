@@ -121,15 +121,29 @@ getDetails() {
     esac
 }
 
+editVideo() {
+    holidays=$(echo "Gold Coast,Bali,Phuket,Sydney,other")
+    yad --title="My YAD Test" --text="Please enter your details:" \
+        --image="/usr/share/icons/hicolor/48x48/status/phone.png" \
+        --form --date-format="%-d %B %Y" --separator="," --item-separator="," \
+        --field="First Name" \
+        --field="Last Name" \
+        --field="Status":RO \
+        --field="Date of birth":DT \
+        --field="Last holiday":CBE \
+        --field="List your 3 favourite foods:":TXT \
+        "" "" "All round good guy" "Click calendar icon" "$holidays"
+}
+
 convert() {
-    trap 'cleanup_and_exit' SIGINT
-    cleanup_and_exit() {
-        echo "Przerwanie konwersji..."
-        kill "$ffmpeg_pid" 2>/dev/null
-        rm -f ffmpeg_progress.log
-        rm -rf "$temp_dir"
-        exit 1
-    }
+    # trap 'cleanup_and_exit' SIGINT
+    # cleanup_and_exit() {
+    #     echo "Przerwanie konwersji..."
+    #     kill "$ffmpeg_pid" 2>/dev/null
+    #     rm -f ffmpeg_progress.log
+    #     rm -rf "$temp_dir"
+    #     exit 1
+    # }
 
     local file=$1
     local target_format
@@ -204,7 +218,7 @@ convert() {
 }
 menu() {
     local table=()
-    local index=0
+    local index=1
 
     for file in "${mediaFiles[@]}"; do
         filename=$(getDetails "$file" filename)
@@ -239,8 +253,9 @@ menu() {
         "${table[@]}")
 
     exit_code=$?
+    id=${id%?}
 
-    if [ "$index" -eq 0 ]; then
+    if [ "$index" -eq 1 ]; then
         case $exit_code in
         1)
             rm -rf "$temp_dir"
@@ -277,7 +292,14 @@ menu() {
                 ;;
             esac
         else
-            id=${id%?}
+            id=$((id - 1))
+            if [ $exit_code -ne 1 ]; then
+                if [ $id -eq -1 ]; then
+                    yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
+                    menu
+                    return
+                fi
+            fi
             case $exit_code in
             0)
                 celluloid "${mediaFiles[$id]}"
