@@ -204,6 +204,7 @@ convert() {
 
 temp_files=()
 composeMenu() {
+    changed_files=()
     local composed_file
     composed_file=$(mktemp --suffix=".mp4" --tmpdir="$temp_dir")
     if [ ${#temp_files[@]} -eq 0 ]; then
@@ -218,37 +219,35 @@ composeMenu() {
         filename=$(getDetails "$file" filename)
         duration=$(getDetails "$file" duration)
         type=$(getDetails "$file" type)
-        extension=$(getDetails "$file" extension)
-        args+=("$file" "#" "$type" "$filename" "$duration")
+        args+=("$file" "$type" "$filename" "$duration")
     done
 
-    local query
-    query=$(yad --list --editable \
+    local file
+    file=$(yad --list \
         --title="Lista wczytanych plików" \
         --width=700 --height=500 \
+        --button=gtk-media-play:10 \
         --button=gtk-close:1 \
-        --button=gtk-media-play:3 \
         --button=gtk-save:4 \
         --button=gtk-apply:6 \
         --button=gtk-undo:8 \
-        --button=gtk-edit:10 \
+        --button=gtk-edit:0 \
         --column=FILE:HD \
-        --column=ORDER:NUM \
         --column=TYPE:IMG \
         --column=NAME \
         --column=Duration \
-        --print-all \
+        --print-column=1 \
         --separator= \
         "${args[@]}")
     local exit_code=$?
 
     case $exit_code in
     1)
-        true
+        return
         ;;
-    3)
+    10)
         if [ "$(getDetails "$composed_file" duration)" = "00:00:00" ]; then
-            yad --title="Błąd" --text="Try applying changes or selecting anything..." --button=gtk-close:0
+            yad --title="Błąd" --text="You have to make some changes..." --button=gtk-close:0
             composeMenu
         else
             celluloid "$composed_file"
@@ -273,13 +272,28 @@ composeMenu() {
         fi
         ;;
     8)
+        for file in "${temp_files[@]}"; do
+            rm -f "$file"
+        done
+        temp_files=()
+        composeMenu
+        ;;
+
+    0)
+        if [ -z "$file" ]; then
+            yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
+            composeMenu
+            return
+        fi
+        if [ "$(getDetails "$file" type)" = "video" ]; then
+            editVideo "$file"
+        else
+            editAudio "$file"
+        fi
         composeMenu
         ;;
 
     esac
-
-    echo "$query"
-
 }
 
 menu() {
@@ -290,7 +304,7 @@ menu() {
         filename=$(getDetails "$file" filename)
         format=$(getDetails "$file" format)
         duration=$(getDetails "$file" duration)
-        extension=$(getDetails "$file" extension) # Still commented out as before
+        extension=$(getDetails "$file" extension)
         type=$(getDetails "$file" type)
         args+=("$index" "$type" "$filename" "$extension" "$duration" "$format")
         index=$((index + 1))
@@ -303,7 +317,7 @@ menu() {
         --button=gtk-add:10 \
         --button=gtk-remove:6 \
         --button=gtk-delete:8 \
-        --button=gtk-edit:2 \
+        --button=gtk-new:2 \
         --button=Convert:4 \
         --button=gtk-media-play:0 \
         --button=gtk-close:1 \
