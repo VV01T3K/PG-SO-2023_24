@@ -146,7 +146,7 @@ convert() {
     local duration
     duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
     duration=${duration%.*}
-    ffmpeg -i "$file" "$temp_file" 2>ffmpeg_progress.log &
+    ffmpeg -i "$file" "$temp_file" -y 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
     local conversion_complete=0
     (
@@ -180,6 +180,7 @@ convert() {
     fi
 
     mv "$temp_file" "$save_path"
+    rm -f "$temp_file"
     if ! isInArray "$save_path" "${videos[@]}"; then
         videos+=("$save_path")
     fi
@@ -243,8 +244,10 @@ menu() {
         ;;
     8)
         echo "DELETE"
-        rm -f "${videos[$id]}"
-        videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+        if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
+            rm -f "${videos[$id]}"
+            videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+        fi
         menu
         ;;
     10)
@@ -261,8 +264,5 @@ menu() {
 # }
 
 # about
-videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film2.avi")
-videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film2.avi")
-videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film3.avi")
-videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film2.avi")
+
 menu
