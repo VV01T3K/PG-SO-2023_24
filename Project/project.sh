@@ -12,16 +12,22 @@
 
 # * https://yad-guide.ingk.se/
 
-bash installDependencies.sh
 # nie może być chyba set -e bo yad się psuje
 set -uf -o pipefail
 LOGS="out.log"
 exec 2>>$LOGS
 
-declare -a videos
-declare -a audios
+# declare -a videos
+# declare -a audios
+declare -a mediaFiles
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
+declare -A media_types=(
+    ["video-x-generic-symbolic"]="video"
+    ["video"]="video-x-generic-symbolic"
+    ["audio-x-generic-symbolic"]="audio"
+    ["audio"]="audio-x-generic-symbolic"
+)
 
 isInArray() {
     local element=$1
@@ -69,7 +75,7 @@ addNewFiles() {
     added_file_flag=0
     for i in "${ADDR[@]}"; do
         if [ ! -d "$i" ]; then
-            videos+=("$i")
+            mediaFiles+=("$i")
             added_file_flag=1
         fi
     done
@@ -79,7 +85,7 @@ addNewFiles() {
 }
 
 # * The `getDetails()` function in the provided shell script is responsible for extracting specific
-# * details about a video file. It takes two parameters: the index of the video file in the `videos`
+# * details about a video file. It takes two parameters: the index of the video file in the `mediaFiles`
 # * array and the specific detail to retrieve (filename, extension, duration, or format).
 getDetails() {
     local file=$1
@@ -103,9 +109,9 @@ getDetails() {
         ;;
     type)
         if ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$file" | grep -q .; then
-            echo "video"
+            echo "${media_types["video"]}"
         else
-            echo "audio"
+            echo "${media_types["audio"]}"
         fi
         ;;
     esac
@@ -188,29 +194,107 @@ convert() {
 
     mv "$temp_file" "$save_path"
     rm -f "$temp_file"
-    if ! isInArray "$save_path" "${videos[@]}"; then
-        videos+=("$save_path")
+    if ! isInArray "$save_path" "${mediaFiles[@]}"; then
+        mediaFiles+=("$save_path")
     fi
     yad --title="Konwersja zakończona" --text="Plik został zapisany" --button=gtk-ok:0
     rm -f ffmpeg_progress.log
 }
 
+temp_files=()
+composeMenu() {
+    local composed_file
+    composed_file=$(mktemp --suffix=".mp4")
+    local args=()
+    for file in "${mediaFiles[@]}"; do
+        filename=$(getDetails "$file" filename)
+        duration=$(getDetails "$file" duration)
+        type=$(getDetails "$file" type)
+        extension=$(getDetails "$file" extension)
+        args+=("$file" "#" "$type" "$filename" "$duration")
+        if [ ${#temp_files[@]} -eq 0 ]; then
+            temp_files+=("$(mktemp --suffix=".$extension")")
+        fi
+    done
+
+    local query
+    query=$(yad --list --editable \
+        --title="Lista wczytanych plików" \
+        --width=700 --height=500 \
+        --button=gtk-close:1 \
+        --button=gtk-media-play:3 \
+        --button=gtk-save:4 \
+        --button=gtk-apply:6 \
+        --button=gtk-undo:8 \
+        --button=gtk-edit:10 \
+        --column=FILE:HD \
+        --column=ORDER:NUM \
+        --column=TYPE:IMG \
+        --column=NAME \
+        --column=Duration \
+        --print-column=1 \
+        --separator= \
+        "${args[@]}")
+    local exit_code=$?
+
+    case $exit_code in
+    1)
+        true
+        ;;
+    3)
+        if [ "$(getDetails "$composed_file" duration)" = "00:00:00" ]; then
+            yad --title="Błąd" --text="Try applying changes or selecting anything..." --button=gtk-close:0
+            composeMenu
+        else
+            celluloid "$composed_file"
+            composeMenu
+        fi
+        ;;
+    4)
+        if [ "$(getDetails "$composed_file" duration)" = "00:00:00" ]; then
+            yad --title="Błąd" --text="Try applying changes or selecting anything..." --button=gtk-close:0
+            composeMenu
+        else
+            local save_path
+            save_path=$(yad --file --save --filename="composed.mp4")
+            if [ -z "$save_path" ]; then
+                yad --title="Błąd" --text="Nie wybrano ścieżki zapisu." --button=gtk-close:0
+                composeMenu
+            else
+                mv "$composed_file" "$save_path"
+                yad --title="Zapisano" --text="Plik został zapisany." --button=gtk-close:0
+                composeMenu
+            fi
+        fi
+        ;;
+    8)
+        rm -f "$composed_file"
+        composeMenu
+        ;;
+
+    esac
+
+    echo "$query"
+
+    rm -f "$composed_file"
+}
+
 menu() {
     local args=()
     local index=0
-    local id
-    local mediaFiles=("${videos[@]}" "${audios[@]}")
 
     for file in "${mediaFiles[@]}"; do
         filename=$(getDetails "$file" filename)
         format=$(getDetails "$file" format)
         duration=$(getDetails "$file" duration)
-        # extension=$(getDetails "$file" extension) # Still commented out as before
+        extension=$(getDetails "$file" extension) # Still commented out as before
         type=$(getDetails "$file" type)
-        args+=("$index" "$type" "$filename" "$duration" "$format")
+        args+=("$index" "$type" "$filename" "$extension" "$duration" "$format")
         index=$((index + 1))
     done
 
+    local id
+    local exit_code
     id=$(yad --list \
         --title="Lista wczytanych plików" \
         --button=gtk-add:10 \
@@ -221,20 +305,20 @@ menu() {
         --button=gtk-media-play:0 \
         --button=gtk-close:1 \
         --width=700 --height=500 \
-        --column=ID:num \
-        --column=TYPE \
+        --column=ID:HD \
+        --column=TYPE:IMG \
         --column=NAME \
+        --column=EXT \
         --column=Duration \
         --column=FORMAT \
         --print-column=1 \
-        --hide-column=1 \
         --separator= \
         "${args[@]}")
 
-    local status=$?
+    exit_code=$?
 
     if [ "$index" -eq 0 ]; then
-        case $status in
+        case $exit_code in
         1)
             exit 0
             ;;
@@ -249,30 +333,32 @@ menu() {
 
         esac
     else
-        case $status in
+        case $exit_code in
         0)
-            # celluloid "${videos[$id]}"
-            totem "${videos[$id]}"
+            celluloid "${mediaFiles[$id]}"
+            # totem "${mediaFiles[$id]}"
             menu
             ;;
         1)
             exit 0
             ;;
         2)
-            echo "EDIT GO ON"
+            echo "COMPOSE GO ON"
+            composeMenu
+            menu
             ;;
         4)
-            convert "${videos[$id]}"
+            convert "${mediaFiles[$id]}"
             menu
             ;;
         6)
-            videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+            mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
             menu
             ;;
         8)
             if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
-                rm -f "${videos[$id]}"
-                videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+                rm -f "${mediaFiles[$id]}"
+                mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
             fi
             menu
             ;;
