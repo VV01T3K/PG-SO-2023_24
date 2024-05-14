@@ -232,42 +232,59 @@ menu() {
         --separator= \
         "${args[@]}")
 
-    case $? in
-    0)
-        celluloid "${videos[$id]}"
-        menu
-        ;;
-    1)
-        echo "CLOSE"
-        ;;
-    2)
-        echo "EDIT GO ON"
-        ;;
-    4)
-        echo "CONVERT"
-        convert "${videos[$id]}"
-        menu
-        ;;
-    6)
-        echo "REMOVE"
-        videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
-        menu
-        ;;
-    8)
-        echo "DELETE"
-        if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
-            rm -f "${videos[$id]}"
-            videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
-        fi
-        menu
-        ;;
-    10)
-        echo "ADD new files"
-        addNewFiles
-        menu
-        ;;
+    local status=$?
 
-    esac
+    if [ "$index" -eq 0 ]; then
+        case $status in
+        1)
+            exit 0
+            ;;
+        10)
+            addNewFiles
+            menu
+            ;;
+        0 | 2 | 4 | 6 | 8)
+            yad --title="Błąd" --text="Nie wybrano plików." --button=gtk-close:0
+            menu
+            ;;
+
+        esac
+    else
+        case $status in
+        0)
+            # celluloid "${videos[$id]}"
+            totem "${videos[$id]}"
+            menu
+            ;;
+        1)
+            exit 0
+            ;;
+        2)
+            echo "EDIT GO ON"
+            ;;
+        4)
+            convert "${videos[$id]}"
+            menu
+            ;;
+        6)
+            videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+            menu
+            ;;
+        8)
+            if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
+                rm -f "${videos[$id]}"
+                videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+            fi
+            menu
+            ;;
+        10)
+            addNewFiles
+            menu
+            ;;
+
+        esac
+    fi
+
 }
 
 # about() {
