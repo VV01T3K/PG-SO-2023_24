@@ -17,6 +17,8 @@ set -uf -o pipefail
 LOGS="out.log"
 exec 2>>$LOGS
 
+temp_dir=$(mktemp -d)
+
 # declare -a videos
 # declare -a audios
 declare -a mediaFiles
@@ -51,6 +53,7 @@ while getopts ${OPTSTRING} opt; do
         ;;
     ?)
         echo "Invalid option: -${OPTARG}."
+        rm -rf "$temp_dir"
         exit 1
         ;;
     esac
@@ -123,7 +126,7 @@ convert() {
         echo "Przerwanie konwersji..."
         kill "$ffmpeg_pid" 2>/dev/null
         rm -f ffmpeg_progress.log
-        rm -f "$temp_file"
+        rm -rf "$temp_dir"
         exit 1
     }
 
@@ -155,7 +158,7 @@ convert() {
     fi
     echo "Selected format: $target_format"
     local temp_file
-    temp_file=$(mktemp --suffix=".${target_format}")
+    temp_file=$(mktemp --suffix=".${target_format}" --tmpdir="$temp_dir")
     local duration
     duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
     duration=${duration%.*}
@@ -180,7 +183,6 @@ convert() {
     if [ $conversion_complete -ne 1 ]; then
         echo "Konwersja nie została zakończona pomyślnie."
         kill "$ffmpeg_pid" 2>/dev/null
-        rm -f "$temp_file"
         yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
         return
     fi
@@ -188,12 +190,11 @@ convert() {
     save_path=$(yad --file --save --filename="${file%.*}.$target_format")
     if [ -z "$save_path" ]; then
         yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
-        rm -f "$temp_file"
+        rm -rf "$temp_dir"
         exit 1
     fi
 
     mv "$temp_file" "$save_path"
-    rm -f "$temp_file"
     if ! isInArray "$save_path" "${mediaFiles[@]}"; then
         mediaFiles+=("$save_path")
     fi
@@ -204,17 +205,21 @@ convert() {
 temp_files=()
 composeMenu() {
     local composed_file
-    composed_file=$(mktemp --suffix=".mp4")
+    composed_file=$(mktemp --suffix=".mp4" --tmpdir="$temp_dir")
+    if [ ${#temp_files[@]} -eq 0 ]; then
+        for file in "${mediaFiles[@]}"; do
+            temp_files+=("$temp_dir/$(basename "$file")")
+            cp "$file" "${temp_files[-1]}"
+        done
+    fi
+
     local args=()
-    for file in "${mediaFiles[@]}"; do
+    for file in "${temp_files[@]}"; do
         filename=$(getDetails "$file" filename)
         duration=$(getDetails "$file" duration)
         type=$(getDetails "$file" type)
         extension=$(getDetails "$file" extension)
         args+=("$file" "#" "$type" "$filename" "$duration")
-        if [ ${#temp_files[@]} -eq 0 ]; then
-            temp_files+=("$(mktemp --suffix=".$extension")")
-        fi
     done
 
     local query
@@ -232,7 +237,7 @@ composeMenu() {
         --column=TYPE:IMG \
         --column=NAME \
         --column=Duration \
-        --print-column=1 \
+        --print-all \
         --separator= \
         "${args[@]}")
     local exit_code=$?
@@ -268,7 +273,6 @@ composeMenu() {
         fi
         ;;
     8)
-        rm -f "$composed_file"
         composeMenu
         ;;
 
@@ -276,7 +280,6 @@ composeMenu() {
 
     echo "$query"
 
-    rm -f "$composed_file"
 }
 
 menu() {
@@ -320,6 +323,7 @@ menu() {
     if [ "$index" -eq 0 ]; then
         case $exit_code in
         1)
+            rm -rf "$temp_dir"
             exit 0
             ;;
         10)
@@ -340,6 +344,7 @@ menu() {
             menu
             ;;
         1)
+            rm -rf "$temp_dir"
             exit 0
             ;;
         2)
