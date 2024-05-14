@@ -12,11 +12,10 @@
 
 # * https://yad-guide.ingk.se/
 
-# ! check for dependencies
+bash installDependencies.sh
 # nie może być chyba set -e bo yad się psuje
 set -uf -o pipefail
 LOGS="out.log"
-echo "" >$LOGS
 exec 2>>$LOGS
 
 declare -a videos
