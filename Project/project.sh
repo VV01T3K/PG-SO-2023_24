@@ -316,9 +316,12 @@ menu() {
                 ;;
             4)
                 local file="${mediaFiles[$id]}"
-                if [ "$(getDetails "$file" type)" = "video" ]; then
+
+                if [ "${media_types[$(getDetails "$file" type)]}" = "video" ]; then
+                    echo "EDIT VIDEO"
                     editVideo "$file"
                 else
+                    echo "EDIT AUDIO"
                     editAudio "$file"
                 fi
                 menu
