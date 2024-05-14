@@ -76,9 +76,10 @@ addNewFiles() {
 
     IFS='|' read -ra ADDR <<<"$selected_files"
     added_file_flag=0
-    for i in "${ADDR[@]}"; do
-        if [ ! -d "$i" ]; then
-            mediaFiles+=("$i")
+    for file in "${ADDR[@]}"; do
+        if [ ! -d "$file" ]; then
+            mediaFiles+=("$temp_dir/$(basename "$file")")
+            cp "$file" "${mediaFiles[-1]}"
             added_file_flag=1
         fi
     done
@@ -201,103 +202,8 @@ convert() {
     yad --title="Konwersja zakończona" --text="Plik został zapisany" --button=gtk-ok:0
     rm -f ffmpeg_progress.log
 }
-
-temp_files=()
-composeMenu() {
-    changed_files=()
-    local composed_file
-    composed_file=$(mktemp --suffix=".mp4" --tmpdir="$temp_dir")
-    if [ ${#temp_files[@]} -eq 0 ]; then
-        for file in "${mediaFiles[@]}"; do
-            temp_files+=("$temp_dir/$(basename "$file")")
-            cp "$file" "${temp_files[-1]}"
-        done
-    fi
-
-    local args=()
-    for file in "${temp_files[@]}"; do
-        filename=$(getDetails "$file" filename)
-        duration=$(getDetails "$file" duration)
-        type=$(getDetails "$file" type)
-        args+=("$file" "$type" "$filename" "$duration")
-    done
-
-    local file
-    file=$(yad --list \
-        --title="Lista wczytanych plików" \
-        --width=700 --height=500 \
-        --button=gtk-media-play:10 \
-        --button=gtk-close:1 \
-        --button=gtk-save:4 \
-        --button=gtk-apply:6 \
-        --button=gtk-undo:8 \
-        --button=gtk-edit:0 \
-        --column=FILE:HD \
-        --column=TYPE:IMG \
-        --column=NAME \
-        --column=Duration \
-        --print-column=1 \
-        --separator= \
-        "${args[@]}")
-    local exit_code=$?
-
-    case $exit_code in
-    1)
-        return
-        ;;
-    10)
-        if [ "$(getDetails "$composed_file" duration)" = "00:00:00" ]; then
-            yad --title="Błąd" --text="You have to make some changes..." --button=gtk-close:0
-            composeMenu
-        else
-            celluloid "$composed_file"
-            composeMenu
-        fi
-        ;;
-    4)
-        if [ "$(getDetails "$composed_file" duration)" = "00:00:00" ]; then
-            yad --title="Błąd" --text="Try applying changes or selecting anything..." --button=gtk-close:0
-            composeMenu
-        else
-            local save_path
-            save_path=$(yad --file --save --filename="composed.mp4")
-            if [ -z "$save_path" ]; then
-                yad --title="Błąd" --text="Nie wybrano ścieżki zapisu." --button=gtk-close:0
-                composeMenu
-            else
-                mv "$composed_file" "$save_path"
-                yad --title="Zapisano" --text="Plik został zapisany." --button=gtk-close:0
-                composeMenu
-            fi
-        fi
-        ;;
-    8)
-        for file in "${temp_files[@]}"; do
-            rm -f "$file"
-        done
-        temp_files=()
-        composeMenu
-        ;;
-
-    0)
-        if [ -z "$file" ]; then
-            yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
-            composeMenu
-            return
-        fi
-        if [ "$(getDetails "$file" type)" = "video" ]; then
-            editVideo "$file"
-        else
-            editAudio "$file"
-        fi
-        composeMenu
-        ;;
-
-    esac
-}
-
 menu() {
-    local args=()
+    local table=()
     local index=0
 
     for file in "${mediaFiles[@]}"; do
@@ -306,19 +212,19 @@ menu() {
         duration=$(getDetails "$file" duration)
         extension=$(getDetails "$file" extension)
         type=$(getDetails "$file" type)
-        args+=("$index" "$type" "$filename" "$extension" "$duration" "$format")
+        table+=("$index" "$type" "$filename" "$extension" "$duration" "$format")
         index=$((index + 1))
     done
 
     local id
     local exit_code
-    id=$(yad --list \
+    id=$(yad --list --multiple \
         --title="Lista wczytanych plików" \
         --button=gtk-add:10 \
         --button=gtk-remove:6 \
         --button=gtk-delete:8 \
         --button=gtk-new:2 \
-        --button=Convert:4 \
+        --button=gtk-edit:4 \
         --button=gtk-media-play:0 \
         --button=gtk-close:1 \
         --width=700 --height=500 \
@@ -329,8 +235,8 @@ menu() {
         --column=Duration \
         --column=FORMAT \
         --print-column=1 \
-        --separator= \
-        "${args[@]}")
+        --separator=! \
+        "${table[@]}")
 
     exit_code=$?
 
@@ -351,42 +257,68 @@ menu() {
 
         esac
     else
-        case $exit_code in
-        0)
-            celluloid "${mediaFiles[$id]}"
-            # totem "${mediaFiles[$id]}"
-            menu
-            ;;
-        1)
-            rm -rf "$temp_dir"
-            exit 0
-            ;;
-        2)
-            echo "COMPOSE GO ON"
-            composeMenu
-            menu
-            ;;
-        4)
-            convert "${mediaFiles[$id]}"
-            menu
-            ;;
-        6)
-            mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
-            menu
-            ;;
-        8)
-            if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
-                rm -f "${mediaFiles[$id]}"
+        if [[ "$id" == *"!"* ]]; then
+            case $exit_code in
+            0 | 4 | 6 | 8)
+                yad --title="Błąd" --text="Wybrano wiecej niż jeden plik." --button=gtk-close:0
+                menu
+                ;;
+            1)
+                rm -rf "$temp_dir"
+                exit 0
+                ;;
+            2)
+                echo "COMPOSE GO ON"
+                menu
+                ;;
+            10)
+                addNewFiles
+                menu
+                ;;
+            esac
+        else
+            id=${id%?}
+            case $exit_code in
+            0)
+                celluloid "${mediaFiles[$id]}"
+                menu
+                ;;
+            1)
+                rm -rf "$temp_dir"
+                exit 0
+                ;;
+            2)
+                echo "COMPOSE GO ON"
+                composeMenu
+                menu
+                ;;
+            4)
+                local file="${mediaFiles[$id]}"
+                if [ "$(getDetails "$file" type)" = "video" ]; then
+                    editVideo "$file"
+                else
+                    editAudio "$file"
+                fi
+                menu
+                ;;
+            6)
                 mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
-            fi
-            menu
-            ;;
-        10)
-            addNewFiles
-            menu
-            ;;
+                menu
+                ;;
+            8)
+                if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
+                    rm -f "${mediaFiles[$id]}"
+                    mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
+                fi
+                menu
+                ;;
+            10)
+                addNewFiles
+                menu
+                ;;
 
-        esac
+            esac
+        fi
     fi
 
 }
@@ -399,3 +331,15 @@ menu() {
 # about
 
 menu
+
+#  if [ -z "$file" ]; then
+#             yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
+#             composeMenu
+#             return
+#         fi
+#         if [ "$(getDetails "$file" type)" = "video" ]; then
+#             editVideo "$file"
+#         else
+#             editAudio "$file"
+#         fi
+#         composeMenu
