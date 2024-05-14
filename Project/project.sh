@@ -251,6 +251,7 @@ menu() {
         menu
         ;;
     10)
+        echo "ADD new files"
         addNewFiles
         menu
         ;;
