@@ -50,35 +50,33 @@ while getopts ${OPTSTRING} opt; do
     esac
 done
 
-selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple \
-    --file-filter="$(
-        echo -n "Wideo | "
-        for format in "${supported_video_formats[@]}"; do
-            echo -n "*.$format "
-        done
-    )" \
-    --file-filter="$(
-        echo -n "Audio | "
-        for format in "${supported_audio_formats[@]}"; do
-            echo -n "*.$format "
-        done
-    )")
+addNewFiles() {
+    selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple \
+        --file-filter="$(
+            echo -n "Wideo | "
+            for format in "${supported_video_formats[@]}"; do
+                echo -n "*.$format "
+            done
+        )" \
+        --file-filter="$(
+            echo -n "Audio | "
+            for format in "${supported_audio_formats[@]}"; do
+                echo -n "*.$format "
+            done
+        )")
 
-IFS='|' read -ra ADDR <<<"$selected_files"
-added_file_flag=0
-for i in "${ADDR[@]}"; do
-    if [ ! -d "$i" ]; then
-        videos+=("$i")
-        added_file_flag=1
-    fi
-done
-if [ "$added_file_flag" -eq 1 ]; then
-    for file in "${videos[@]}"; do
-        echo "$file"
+    IFS='|' read -ra ADDR <<<"$selected_files"
+    added_file_flag=0
+    for i in "${ADDR[@]}"; do
+        if [ ! -d "$i" ]; then
+            videos+=("$i")
+            added_file_flag=1
+        fi
     done
-else
-    echo "No video files were selected."
-fi
+    if [ "$added_file_flag" -ne 1 ]; then
+        yad --title="Błąd" --text="Nie wybrano plików wideo." --button=gtk-close:0
+    fi
+}
 
 # * The `getDetails()` function in the provided shell script is responsible for extracting specific
 # * details about a video file. It takes two parameters: the index of the video file in the `videos`
@@ -107,92 +105,85 @@ getDetails() {
 }
 
 convert() {
-    trap 'cleanup_and_exit' SIGINT
-    cleanup_and_exit() {
-        echo "Przerwanie konwersji..."
-        kill "$ffmpeg_pid" 2>/dev/null
-        rm -f ffmpeg_progress.log
-        rm -f "$tmp_file"
-        yad --title="Błąd konwersji" --text="Wystąpił błąd podczas konwersji pliku." --button=gtk-close:0
-        exit 1
-    }
+    # trap 'cleanup_and_exit' SIGINT
 
-    local file="${videos[$1]}"
-    local target_format
-    local format_options=""
-    local first=true
-    for format in "${supported_video_formats[@]}"; do
-        if $first; then
-            format_options+="TRUE $format "
-            first=false
-        else
-            format_options+="FALSE $format "
-        fi
-    done
+    # cleanup_and_exit() {
+    #     echo "Przerwanie konwersji..."
+    #     kill "$ffmpeg_pid" 2>/dev/null
+    #     rm -f ffmpeg_progress.log
+    #     rm -f "$temp_file"
+    #     exit 1
+    # }
+    local file=$1
+    echo "Converting $file"
+    # local format_options=""
+    # local first=true
+    # for format in "${supported_video_formats[@]}"; do
+    #     if $first; then
+    #         format_options+="TRUE $format "
+    #         first=false
+    #     else
+    #         format_options+="FALSE $format "
+    #     fi
+    # done
+    # # shellcheck disable=SC2086
+    # target_format=$(yad --title="Wybierz format" \
+    #     --no-selection \
+    #     --width=300 --height=300 \
+    #     --list --radiolist \
+    #     --print-column=2 --separator= \
+    #     --column=Select:BOOL \
+    #     --column=Format:TEXT $format_options)
 
-    # shellcheck disable=SC2086
-    target_format=$(yad --title="Wybierz format" \
-        --width=300 --height=300 \
-        --list --radiolist \
-        --print-column=2 --separator= \
-        --column=Select:BOOL \
-        --column=Format:TEXT $format_options)
+    # if [ $? -eq 1 ]; then
+    #     echo "Cancel button was pressed."
+    #     return
+    # fi
+    # echo "Selected format: $target_format"
+    # local temp_file
+    # temp_file=$(mktemp --suffix=".${target_format}")
+    # local duration
+    # duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+    # duration=${duration%.*}
+    # ffmpeg -i "$file" "$temp_file" 2>ffmpeg_progress.log &
+    # ffmpeg_pid=$!
+    # local conversion_complete=0
+    # (
+    #     while kill -0 $ffmpeg_pid 2>/dev/null; do
+    #         current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+    #         hours=$(echo "$current_time" | cut -d':' -f1)
+    #         minutes=$(echo "$current_time" | cut -d':' -f2)
+    #         seconds=$(echo "$current_time" | cut -d':' -f3)
+    #         current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+    #         progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
+    #         echo "$progress"
+    #         sleep 1
+    #     done
+    #     echo "# Konwersja zakończona"
+    #     echo "100"
+    # ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
 
-    if [ -z "$target_format" ] || [ "${file##*.}" = "$target_format" ]; then
-        echo "No conversion needed."
-        return
-    fi
+    # if [ $conversion_complete -ne 1 ]; then
+    #     echo "Konwersja nie została zakończona pomyślnie."
+    #     kill "$ffmpeg_pid" 2>/dev/null
+    #     rm -f "$temp_file"
+    #     yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+    #     return
+    # fi
+    # local save_path
+    # save_path=$(yad --file --save --filename="${file%.*}.$target_format")
+    # if [ -z "$save_path" ]; then
+    #     yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+    #     rm -f "$temp_file"
+    #     exit 1
+    # fi
 
-    local output_file="${file%.*}.$target_format"
-    local tmp_file
-    tmp_file="$(dirname "$file")/convertingTEMPiqbc217t69c63gq3o73c.$target_format"
-    local duration
-    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
-    duration=${duration%.*}
-    ffmpeg -i "$file" "$tmp_file" 2>ffmpeg_progress.log &
-    ffmpeg_pid=$!
-    local conversion_complete=0
-    (
-        while kill -0 $ffmpeg_pid 2>/dev/null; do
-            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-            hours=$(echo "$current_time" | cut -d':' -f1)
-            minutes=$(echo "$current_time" | cut -d':' -f2)
-            seconds=$(echo "$current_time" | cut -d':' -f3)
-            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-            progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
-            echo "$progress"
-            sleep 1
-        done
-        echo "# Konwersja zakończona"
-        echo "100"
-    ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
-
-    # After conversion is complete
-    if [ $conversion_complete -ne 1 ]; then
-        echo "Konwersja nie została zakończona pomyślnie."
-        kill "$ffmpeg_pid" 2>/dev/null
-        rm -f "$tmp_file"
-        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
-        exit 1
-    fi
-
-    # Use yad to save the file
-    local save_path
-    save_path=$(yad --file --save --filename="$output_file")
-    if [ -z "$save_path" ]; then
-        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
-        rm -f "$tmp_file"
-        exit 1
-    fi
-
-    mv "$tmp_file" "$save_path"
-    if ! isInArray "$save_path" "${videos[@]}"; then
-        videos+=("$save_path")
-    fi
-
-    if yad --title="Konwersja zakończona" --text="Plik został zapisany" --button=gtk-ok:0; then
-        menu
-    fi
+    # mv "$temp_file" "$save_path"
+    # if ! isInArray "$save_path" "${videos[@]}"; then
+    #     videos+=("$save_path")
+    # fi
+    # yad --title="Konwersja zakończona" --text="Plik został zapisany" --button=gtk-ok:0
+    # rm -f ffmpeg_progress.log
 }
 
 menu() {
@@ -202,23 +193,27 @@ menu() {
         filename=$(getDetails "$index" filename)
         format=$(getDetails "$index" format)
         duration=$(getDetails "$index" duration)
+        # extension=$(getDetails "$index" extension)
         args+=("$index" "$filename" "$duration" "$format")
         index=$((index + 1))
     done
     id=$(yad --list \
         --title="Lista wczytanych plików" \
-        --width=600 --height=500 \
+        --width=700 --height=500 \
         --column=ID:NUM \
         --column=NAME:text \
         --column=Duration:text \
         --column=FORMAT:text \
-        --button=gtk-ok:2 \
-        --button=gtk-cancel:1 \
-        --button=gtk-media-play:0 \
+        --button=gtk-add:6 \
+        --button=gtk-delete:5 \
+        --button=gtk-remove:4 \
         --button=Convert:3 \
-        --hide-column=1 \
+        --button=gtk-edit:2 \
+        --button=gtk-close:1 \
+        --button=gtk-media-play:0 \
         --print-column=1 --separator= \
         "${args[@]}")
+
     case $? in
     0)
         # ffplay -x 800 -y 600 "${videos[$id]}"
@@ -226,15 +221,42 @@ menu() {
         menu
         ;;
     1)
-        echo "CANCEL"
+        echo "CLOSE"
         ;;
     2)
-        echo "OK"
+        echo "EDIT GO ON"
         ;;
     3)
-        convert "$id"
+        convert "${videos[$id]}"
+        menu
         ;;
+    4)
+        echo "REMOVE"
+        videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+        menu
+        ;;
+    5)
+        echo "DELETE"
+        rm -f "${videos[$id]}"
+        videos=("${videos[@]:0:$id}" "${videos[@]:$((id + 1))}")
+        menu
+        ;;
+    6)
+        addNewFiles
+        menu
+        ;;
+
     esac
 }
 
+# about() {
+#     yad --width=700 --height=500 --title="O programie" --text="Program do konwersji plików wideo" --button=gtk-new:0
+#     menu
+# }
+
+# about
+videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film2.avi")
+videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film2.avi")
+videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film3.avi")
+videos+=("/home/qwerty/LABS/Project/PlikiTestowe/film2.avi")
 menu
