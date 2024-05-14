@@ -20,6 +20,7 @@ echo "" >$LOGS
 exec 2>>$LOGS
 
 declare -a videos
+declare -a audios
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
 
@@ -82,7 +83,7 @@ addNewFiles() {
 # * details about a video file. It takes two parameters: the index of the video file in the `videos`
 # * array and the specific detail to retrieve (filename, extension, duration, or format).
 getDetails() {
-    local file="${videos[$1]}"
+    local file=$1
     local detail=$2
     case $detail in
     filename)
@@ -100,6 +101,13 @@ getDetails() {
         ;;
     format)
         ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 "$file"
+        ;;
+    type)
+        if ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "$file" | grep -q .; then
+            echo "video"
+        else
+            echo "audio"
+        fi
         ;;
     esac
 }
@@ -192,12 +200,15 @@ menu() {
     local args=()
     local index=0
     local id
-    for file in "${videos[@]}"; do
-        filename=$(getDetails "$index" filename)
-        format=$(getDetails "$index" format)
-        duration=$(getDetails "$index" duration)
-        # extension=$(getDetails "$index" extension)
-        args+=("$index" "$filename" "$duration" "$format")
+    local mediaFiles=("${videos[@]}" "${audios[@]}")
+
+    for file in "${mediaFiles[@]}"; do
+        filename=$(getDetails "$file" filename)
+        format=$(getDetails "$file" format)
+        duration=$(getDetails "$file" duration)
+        # extension=$(getDetails "$file" extension) # Still commented out as before
+        type=$(getDetails "$file" type)
+        args+=("$index" "$type" "$filename" "$duration" "$format")
         index=$((index + 1))
     done
 
@@ -212,6 +223,7 @@ menu() {
         --button=gtk-close:1 \
         --width=700 --height=500 \
         --column=ID:num \
+        --column=TYPE \
         --column=NAME \
         --column=Duration \
         --column=FORMAT \
@@ -222,8 +234,7 @@ menu() {
 
     case $? in
     0)
-        # ffplay -x 800 -y 600 "${videos[$id]}"
-        mpv "${videos[$id]}" >>"$LOGS" 2>&1
+        celluloid "${videos[$id]}"
         menu
         ;;
     1)
