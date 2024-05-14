@@ -121,18 +121,55 @@ getDetails() {
     esac
 }
 
+play() {
+    local file=$1
+    local extension="${file##*.}"
+    cp "$file" "./playback.$extension"
+    celluloid "./playback.$extension"
+    rm -f "./playback.$extension"
+}
+
 editVideo() {
-    holidays=$(echo "Gold Coast,Bali,Phuket,Sydney,other")
-    yad --title="My YAD Test" --text="Please enter your details:" \
-        --image="/usr/share/icons/hicolor/48x48/status/phone.png" \
-        --form --date-format="%-d %B %Y" --separator="," --item-separator="," \
-        --field="First Name" \
-        --field="Last Name" \
-        --field="Status":RO \
-        --field="Date of birth":DT \
-        --field="Last holiday":CBE \
-        --field="List your 3 favourite foods:":TXT \
-        "" "" "All round good guy" "Click calendar icon" "$holidays"
+    local file=$1
+    local reordered_formats=("$(getDetails "$file" extension)")
+    for format in "${supported_video_formats[@]}"; do
+        if [[ "$format" != "$(getDetails "$file" extension)" ]]; then
+            reordered_formats+=("$format")
+        fi
+    done
+    printf -v video_formats "%s\\!" "${reordered_formats[@]}"
+    local video_formats=${video_formats%\\!}
+    local dane
+    dane=$(
+        yad --form --title="My YAD Test" --text="Please enter your details:" \
+            --button=gtk-media-play:0 \
+            --button=gtk-save:4 \
+            --button=gtk-apply:2 \
+            --button=gtk-cancel:1 \
+            --field="FILE:H" "$file" \
+            --field="Name:RO" "$(getDetails "$file" filename)" \
+            --field="Format:CB" "$video_formats" \
+            --field="Duration:RO" "$(getDetails "$file" duration)" \
+            --field="Time [%] to cut from start:SCL" "0:$(getDetails "$file" duration):1" \
+            --field="Time [%] to cut from end:SCL" "0:$(getDetails "$file" duration):1" \
+            --field="Time [%] to add to front:SCL" "0:$(getDetails "$file" duration):1" \
+            --field="Watermark:CHK" \
+            --field="Watermark Text"
+    )
+
+    local exit_code=$?
+    echo "$dane"
+    case $exit_code in
+    0)
+        play "$file"
+        ;;
+    2)
+        echo "APPLY"
+        ;;
+    4)
+        echo "SAVE"
+        ;;
+    esac
 }
 
 convert() {
@@ -191,7 +228,7 @@ convert() {
             echo "$progress"
             sleep 1
         done
-        echo "# Konwersja zakończona"
+        echo " # Konwersja zakończona"
         echo "100"
     ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
 
@@ -293,7 +330,7 @@ menu() {
             esac
         else
             id=$((id - 1))
-            if [ $exit_code -ne 1 ]; then
+            if [ $exit_code -ne 1 ] && [ $exit_code -ne 10 ]; then
                 if [ $id -eq -1 ]; then
                     yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
                     menu
@@ -302,7 +339,7 @@ menu() {
             fi
             case $exit_code in
             0)
-                celluloid "${mediaFiles[$id]}"
+                play "${mediaFiles[$id]}"
                 menu
                 ;;
             1)
