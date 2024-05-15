@@ -245,7 +245,7 @@ processVideo() {
     # Use the calculated cut times to trim the video
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
-    # Convert the video to the target format and watermark it
+    # Convert the video to the target format and watermark it if needed
     if ! getDetails "$file" format | grep -q "$target_format"; then
         local converted_file="${temp_file%.*}_converted.$target_format"
         if [ -n "$watermark" ]; then
