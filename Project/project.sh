@@ -146,7 +146,6 @@ editVideo() {
     local dane
     dane=$(
         yad --form --title="Single File Edit" --text="Please enter your details:" \
-            --button=gtk-media-play:0 \
             --button=gtk-save:4 \
             --button=gtk-apply:2 \
             --button=gtk-cancel:1 \
@@ -161,9 +160,6 @@ editVideo() {
 
     local exit_code=$?
     case $exit_code in
-    0)
-        play "$file"
-        ;;
     2)
         IFS='|' read -ra ADDR <<<"$dane"
         vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[0]}")
@@ -181,8 +177,8 @@ editVideo() {
             yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
         else
             cp "$vid" "$save_path"
+            realFiles+=("$save_path")
             mediaFiles+=("$temp_dir/$(getDetails "$save_path" filename).${ADDR[1]}")
-            realFiles+=("${mediaFiles[-1]}")
             cp "$vid" "${mediaFiles[-1]}"
             yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
         fi
@@ -226,7 +222,7 @@ processVideo() {
     if ! getDetails "$file" format | grep -q "$target_format"; then
         ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
     else
-        cp "$temp_file" "$converted_file"
+        mv "$temp_file" "$converted_file"
     fi
 
     # Create a list file for concatenation with the video looped n times
@@ -238,7 +234,7 @@ processVideo() {
     ffmpeg -f concat -safe 0 -i "$list_file" -c copy "$looped_file" -y >>$FFMPEG_LOGS 2>&1
     local vid
     vid="$temp_dir/$7.$target_format"
-    cp "$looped_file" "$vid"
+    mv "$looped_file" "$vid"
     rm -f "$temp_file" "$converted_file" "$looped_file" "$list_file"
     echo "$vid"
 }
@@ -282,7 +278,7 @@ menu() {
     exit_code=$?
     id=${id%?}
 
-    if [ $exit_code -ne 1 ] && [ $exit_code -ne 252 ]; then
+    if [ $exit_code -eq 1 ] && [ $exit_code -eq 252 ]; then
         case $exit_code in
         1)
             rm -rf "$temp_dir"
