@@ -141,19 +141,17 @@ editVideo() {
     local video_formats=${video_formats%\\!}
     local dane
     dane=$(
-        yad --form --title="My YAD Test" --text="Please enter your details:" \
+        yad --form --title="Single File Edit" --text="Please enter your details:" \
             --button=gtk-media-play:0 \
             --button=gtk-save:4 \
             --button=gtk-apply:2 \
             --button=gtk-cancel:1 \
-            --field="FILE:H" "$file" \
             --field="Name:RO" "$(getDetails "$file" filename)" \
             --field="Format:CB" "$video_formats" \
             --field="Duration:RO" "$(getDetails "$file" duration)" \
-            --field="Time [%] to cut from start:SCL" "0:$(getDetails "$file" duration):1" \
-            --field="Time [%] to cut from end:SCL" "0:$(getDetails "$file" duration):1" \
-            --field="Time [%] to add to front:SCL" "0:$(getDetails "$file" duration):1" \
-            --field="Watermark:CHK" \
+            --field="Time [%] to cut from start:SCL" "0:100:1" \
+            --field="Time [%] to cut from end:SCL" "0:100:1" \
+            --field="Number of loops:NUM" "0..100..1" \
             --field="Watermark Text"
     )
 
@@ -165,93 +163,56 @@ editVideo() {
         ;;
     2)
         echo "APPLY"
+        IFS='|' read -ra ADDR <<<"$dane"
+        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        play "$vid"
+        echo "$vid"
+        editVideo "$vid"
         ;;
     4)
         echo "SAVE"
+        yad --save --file="$file" --filename="$(basename "$file")" --confirm-overwrite
         ;;
     esac
 }
 
-convert() {
-    # trap 'cleanup_and_exit' SIGINT
-    # cleanup_and_exit() {
-    #     echo "Przerwanie konwersji..."
-    #     kill "$ffmpeg_pid" 2>/dev/null
-    #     rm -f ffmpeg_progress.log
-    #     rm -rf "$temp_dir"
-    #     exit 1
-    # }
-
+processVideo() {
     local file=$1
-    local target_format
-
-    local format_options=""
-    local first=true
-    for format in "${supported_video_formats[@]}"; do
-        if $first; then
-            format_options+="TRUE $format "
-            first=false
-        else
-            format_options+="FALSE $format "
-        fi
-    done
-    # shellcheck disable=SC2086
-    target_format=$(yad --title="Wybierz format" \
-        --no-selection \
-        --width=300 --height=300 \
-        --list --radiolist \
-        --print-column=2 --separator= \
-        --column=Select:BOOL \
-        --column=Format:TEXT $format_options)
-
-    if [ $? -eq 1 ]; then
-        echo "Cancel button was pressed."
+    local format=$2
+    local cut_front_percentage=$3
+    local cut_back_percentage=$4
+    if [ "$(echo "$cut_front_percentage + $cut_back_percentage >= 100" | bc)" -eq 1 ]; then
+        yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
         return
     fi
-    echo "Selected format: $target_format"
+    local loop_number=$5
+    # local watermark=$6
     local temp_file
-    temp_file=$(mktemp --suffix=".${target_format}" --tmpdir="$temp_dir")
+    temp_file=$(mktemp --suffix=".${format}" --tmpdir="$temp_dir")
+
+    # Get the duration of the video in seconds
     local duration
     duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
-    duration=${duration%.*}
-    ffmpeg -i "$file" "$temp_file" -y 2>ffmpeg_progress.log &
-    ffmpeg_pid=$!
-    local conversion_complete=0
-    (
-        while kill -0 $ffmpeg_pid 2>/dev/null; do
-            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-            hours=$(echo "$current_time" | cut -d':' -f1)
-            minutes=$(echo "$current_time" | cut -d':' -f2)
-            seconds=$(echo "$current_time" | cut -d':' -f3)
-            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-            progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
-            echo "$progress"
-            sleep 1
-        done
-        echo " # Konwersja zakończona"
-        echo "100"
-    ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
 
-    if [ $conversion_complete -ne 1 ]; then
-        echo "Konwersja nie została zakończona pomyślnie."
-        kill "$ffmpeg_pid" 2>/dev/null
-        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
-        return
-    fi
-    local save_path
-    save_path=$(yad --file --save --filename="${file%.*}.$target_format")
-    if [ -z "$save_path" ]; then
-        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
-        rm -rf "$temp_dir"
-        exit 1
-    fi
+    # Calculate the cut times based on the duration and percentages
+    local cut_front_seconds
+    local cut_back_seconds
+    local cut_duration
+    cut_front_seconds=$(echo "$duration * $cut_front_percentage / 100" | bc -l)
+    cut_back_seconds=$(echo "$duration * $cut_back_percentage / 100" | bc -l)
+    cut_duration=$(echo "$duration - $cut_front_seconds - $cut_back_seconds" | bc -l)
 
-    mv "$temp_file" "$save_path"
-    if ! isInArray "$save_path" "${mediaFiles[@]}"; then
-        mediaFiles+=("$save_path")
-    fi
-    yad --title="Konwersja zakończona" --text="Plik został zapisany" --button=gtk-ok:0
-    rm -f ffmpeg_progress.log
+    # Use the calculated cut times to trim the video
+    ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y
+
+    # Create a list file for concatenation with the video looped n times
+    local list_file="${temp_file%.*}_list.txt"
+    for ((i = 0; i < loop_number + 1; i++)); do
+        echo "file '$temp_file'" >>"$list_file"
+    done
+    ffmpeg -f concat -safe 0 -i "$list_file" -c copy "${temp_file%.*}_looped.$format" -y
+    mv "${temp_file%.*}_looped.$format" "$temp_file"
+    echo "$temp_file"
 }
 menu() {
     local table=()
