@@ -160,8 +160,8 @@ editVideo() {
             --field="Time [%] to cut from start:SCL" "0:100:1" \
             --field="Time [%] to cut from end:SCL" "0:100:1" \
             --field="Number of loops:NUM" "0..100..1" \
-            --field="Watermark Text" "watermark" \
-            --field="Watermark Font Size:NUM" "10..100..1" \
+            --field="Watermark Text" "" \
+            --field="Watermark Font Size:NUM" "16" \
             --field="Watermark Color:CLR"
     )
     local exit_code=$?
@@ -255,14 +255,26 @@ processVideo() {
     local converted_file="${temp_file%.*}_converted.$target_format"
     if ! getDetails "$file" format | grep -q "$target_format"; then
         if [ -n "$watermark_text" ]; then
-            ffmpeg -i "$temp_file" -vf "drawtext=text='$watermark_text':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=$watermark_font_size:fontcolor=$watermark_color" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+            ffmpeg -i "$temp_file" \
+                -vf "drawtext=text='$watermark_text':\
+                        x=$watermark_font_size/3:\
+                        y=h-text_h-10:\
+                        fontsize=$watermark_font_size:\
+                        fontcolor=$watermark_color" \
+                "$converted_file" -y >>$FFMPEG_LOGS 2>&1
         else
             ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
         fi
         mv "$converted_file" "$temp_file"
     else
         if [ -n "$watermark_text" ]; then
-            ffmpeg -i "$temp_file" -vf "drawtext=text='$watermark_text':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=$watermark_font_size:fontcolor=$watermark_color" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+            ffmpeg -i "$temp_file" \
+                -vf "drawtext=text='$watermark_text':\
+                        x=$watermark_font_size/3:\
+                        y=h-text_h-10:\
+                        fontsize=$watermark_font_size:\
+                        fontcolor=$watermark_color" \
+                "$converted_file" -y >>$FFMPEG_LOGS 2>&1
             mv "$converted_file" "$temp_file"
         fi
     fi
