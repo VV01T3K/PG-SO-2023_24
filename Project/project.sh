@@ -160,13 +160,19 @@ editVideo() {
             --field="Time [%] to cut from start:SCL" "0:100:1" \
             --field="Time [%] to cut from end:SCL" "0:100:1" \
             --field="Number of loops:NUM" "0..100..1" \
-            --field="Watermark Text"
+            --field="Watermark Text" "watermark" \
+            --field="Watermark Font Size:NUM" "10..100..1" \
+            --field="Watermark Color:CLR"
     )
-
     local exit_code=$?
     case $exit_code in
     2)
         IFS='|' read -ra ADDR <<<"$dane"
+        if [ "$(echo "${ADDR[3]} + ${ADDR[4]} >= 100" | bc)" -eq 1 ]; then
+            yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
+            editVideo "$file" "$id"
+            return
+        fi
         processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
         vid="$temp_dir/${ADDR[0]}.${ADDR[1]}"
         mv "$processed" "$vid"
@@ -176,6 +182,11 @@ editVideo() {
         ;;
     4)
         IFS='|' read -ra ADDR <<<"$dane"
+        if [ "$(echo "${ADDR[3]} + ${ADDR[4]} >= 100" | bc)" -eq 1 ]; then
+            yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
+            editVideo "$file" "$id"
+            return
+        fi
         processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
         local save_path
         save_path=$(yad --save --file="$file" --filename="./${ADDR[0]}.${ADDR[1]}")
@@ -214,10 +225,6 @@ processVideo() {
     local target_format=$2
     local cut_front_percentage=$3
     local cut_back_percentage=$4
-    if [ "$(echo "$cut_front_percentage + $cut_back_percentage >= 100" | bc)" -eq 1 ]; then
-        yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
-        return
-    fi
     local loop_number=$5
     local watermark=$6
     local temp_file
@@ -238,18 +245,15 @@ processVideo() {
     # Use the calculated cut times to trim the video
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
-    # Convert the video to the target format
+    # Convert the video to the target format and watermark it
     if ! getDetails "$file" format | grep -q "$target_format"; then
         local converted_file="${temp_file%.*}_converted.$target_format"
-        ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+        if [ -n "$watermark" ]; then
+            ffmpeg -i "$temp_file" -vf "drawtext=text='$watermark':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+        else
+            ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+        fi
         mv "$converted_file" "$temp_file"
-    fi
-
-    # Add a watermark to the video if specified
-    if [ -n "$watermark" ]; then
-        local watermarked_file="${temp_file%.*}_watermarked.$target_format"
-        ffmpeg -i "$converted_file" -vf "drawtext=text='$watermark':x=(w-text_w)/2:y=(h-text_h)/2" -c copy "$watermarked_file" -y >>$FFMPEG_LOGS 2>&1
-        mv "$watermarked_file" "$temp_file"
     fi
 
     # Create a list file for concatenation with the video looped n times
