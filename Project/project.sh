@@ -15,13 +15,15 @@
 # nie może być chyba set -e bo yad się psuje
 set -uf -o pipefail
 LOGS="out.log"
+FFMPEG_LOGS="ffmpeg.log"
+echo "" >$LOGS
+echo "" >$FFMPEG_LOGS
 exec 2>>$LOGS
 
 temp_dir=$(mktemp -d)
 
-# declare -a videos
-# declare -a audios
 declare -a mediaFiles
+declare -a realFiles
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
 declare -A media_types=(
@@ -78,6 +80,7 @@ addNewFiles() {
     added_file_flag=0
     for file in "${ADDR[@]}"; do
         if [ ! -d "$file" ]; then
+            realFiles+=("$file")
             mediaFiles+=("$temp_dir/$(basename "$file")")
             cp "$file" "${mediaFiles[-1]}"
             added_file_flag=1
@@ -131,6 +134,7 @@ play() {
 
 editVideo() {
     local file=$1
+    local id=$2
     local reordered_formats=("$(getDetails "$file" extension)")
     for format in "${supported_video_formats[@]}"; do
         if [[ "$format" != "$(getDetails "$file" extension)" ]]; then
@@ -156,29 +160,39 @@ editVideo() {
     )
 
     local exit_code=$?
-    echo "$dane"
     case $exit_code in
     0)
         play "$file"
         ;;
     2)
-        echo "APPLY"
         IFS='|' read -ra ADDR <<<"$dane"
         vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
-        play "$vid"
-        echo "$vid"
-        editVideo "$vid"
+        mediaFiles[id]="$vid"
+        yad --title="Przetwarzanie zakończone" --text="Plik został zaktualizowany" --button=gtk-ok:0
         ;;
     4)
-        echo "SAVE"
-        yad --save --file="$file" --filename="$(basename "$file")" --confirm-overwrite
+        IFS='|' read -ra ADDR <<<"$dane"
+        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        local save_path
+        save_path=$(yad --save --file="$file" --filename="./${ADDR[0]}.${ADDR[1]}")
+        if [ -z "$save_path" ]; then
+            rm -f "$vid"
+            yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+        else
+            cp "$vid" "$save_path"
+            mediaFiles+=("$temp_dir/$(getDetails "$save_path" filename).${ADDR[1]}")
+            mv "$vid" "${mediaFiles[-1]}"
+            yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
+        fi
         ;;
     esac
 }
 
 processVideo() {
+    echo "" >$FFMPEG_LOGS
     local file=$1
-    local format=$2
+    local current_format="${file##*.}"
+    local target_format=$2
     local cut_front_percentage=$3
     local cut_back_percentage=$4
     if [ "$(echo "$cut_front_percentage + $cut_back_percentage >= 100" | bc)" -eq 1 ]; then
@@ -188,7 +202,7 @@ processVideo() {
     local loop_number=$5
     # local watermark=$6
     local temp_file
-    temp_file=$(mktemp --suffix=".${format}" --tmpdir="$temp_dir")
+    temp_file=$(mktemp --suffix=".$current_format" --tmpdir="$temp_dir")
 
     # Get the duration of the video in seconds
     local duration
@@ -203,17 +217,27 @@ processVideo() {
     cut_duration=$(echo "$duration - $cut_front_seconds - $cut_back_seconds" | bc -l)
 
     # Use the calculated cut times to trim the video
-    ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y
+    ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
+
+    # Convert the video to the target format
+    local converted_file="${temp_file%.*}_converted.$target_format"
+    ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
 
     # Create a list file for concatenation with the video looped n times
     local list_file="${temp_file%.*}_list.txt"
     for ((i = 0; i < loop_number + 1; i++)); do
-        echo "file '$temp_file'" >>"$list_file"
+        echo "file '$converted_file'" >>"$list_file"
     done
-    ffmpeg -f concat -safe 0 -i "$list_file" -c copy "${temp_file%.*}_looped.$format" -y
-    mv "${temp_file%.*}_looped.$format" "$temp_file"
-    echo "$temp_file"
+    local looped_file="${temp_file%.*}_looped.$target_format"
+    ffmpeg -f concat -safe 0 -i "$list_file" -c copy "$looped_file" -y >>$FFMPEG_LOGS 2>&1
+    local vid
+    # TODO fix other dirnames and basenames
+    vid="$temp_dir/$(getDetails "$file" filename).$target_format"
+    mv "$looped_file" "$vid"
+    rm -f "$temp_file" "$converted_file" "$looped_file" "$list_file"
+    echo "$vid"
 }
+
 menu() {
     local table=()
     local index=1
@@ -317,10 +341,10 @@ menu() {
 
                 if [ "${media_types[$(getDetails "$file" type)]}" = "video" ]; then
                     echo "EDIT VIDEO"
-                    editVideo "$file"
+                    editVideo "$file" "$id"
                 else
                     echo "EDIT AUDIO"
-                    editAudio "$file"
+                    editAudio "$file" "$id"
                 fi
                 menu
                 ;;
@@ -330,8 +354,9 @@ menu() {
                 ;;
             8)
                 if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
-                    rm -f "${mediaFiles[$id]}"
+                    rm -f "${realFiles[$id]}"
                     mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
+                    realFiles=("${realFiles[@]:0:$id}" "${realFiles[@]:$((id + 1))}")
                 fi
                 menu
                 ;;
