@@ -150,7 +150,7 @@ editVideo() {
             --button=gtk-save:4 \
             --button=gtk-apply:2 \
             --button=gtk-cancel:1 \
-            --field="Name:RO" "$(getDetails "$file" filename)" \
+            --field="Name" "$(getDetails "$file" filename)" \
             --field="Format:CB" "$video_formats" \
             --field="Duration:RO" "$(getDetails "$file" duration)" \
             --field="Time [%] to cut from start:SCL" "0:100:1" \
@@ -166,13 +166,14 @@ editVideo() {
         ;;
     2)
         IFS='|' read -ra ADDR <<<"$dane"
-        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[0]}")
         mediaFiles[id]="$vid"
+        realFiles[id]=""
         yad --title="Przetwarzanie zakończone" --text="Plik został zaktualizowany" --button=gtk-ok:0
         ;;
     4)
         IFS='|' read -ra ADDR <<<"$dane"
-        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[0]}")
         local save_path
         save_path=$(yad --save --file="$file" --filename="./${ADDR[0]}.${ADDR[1]}")
         if [ -z "$save_path" ]; then
@@ -181,7 +182,8 @@ editVideo() {
         else
             cp "$vid" "$save_path"
             mediaFiles+=("$temp_dir/$(getDetails "$save_path" filename).${ADDR[1]}")
-            mv "$vid" "${mediaFiles[-1]}"
+            realFiles+=("${mediaFiles[-1]}")
+            cp "$vid" "${mediaFiles[-1]}"
             yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
         fi
         ;;
@@ -221,7 +223,11 @@ processVideo() {
 
     # Convert the video to the target format
     local converted_file="${temp_file%.*}_converted.$target_format"
-    ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+    if ! getDetails "$file" format | grep -q "$target_format"; then
+        ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+    else
+        cp "$temp_file" "$converted_file"
+    fi
 
     # Create a list file for concatenation with the video looped n times
     local list_file="${temp_file%.*}_list.txt"
@@ -231,9 +237,8 @@ processVideo() {
     local looped_file="${temp_file%.*}_looped.$target_format"
     ffmpeg -f concat -safe 0 -i "$list_file" -c copy "$looped_file" -y >>$FFMPEG_LOGS 2>&1
     local vid
-    # TODO fix other dirnames and basenames
-    vid="$temp_dir/$(getDetails "$file" filename).$target_format"
-    mv "$looped_file" "$vid"
+    vid="$temp_dir/$7.$target_format"
+    cp "$looped_file" "$vid"
     rm -f "$temp_file" "$converted_file" "$looped_file" "$list_file"
     echo "$vid"
 }
@@ -350,6 +355,7 @@ menu() {
                 ;;
             6)
                 mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
+                realFiles=("${realFiles[@]:0:$id}" "${realFiles[@]:$((id + 1))}")
                 menu
                 ;;
             8)
