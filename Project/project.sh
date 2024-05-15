@@ -282,7 +282,7 @@ menu() {
     exit_code=$?
     id=${id%?}
 
-    if [ "$index" -eq 1 ]; then
+    if [ $exit_code -ne 1 ] && [ $exit_code -ne 252 ]; then
         case $exit_code in
         1)
             rm -rf "$temp_dir"
@@ -320,7 +320,7 @@ menu() {
             esac
         else
             id=$((id - 1))
-            if [ $exit_code -ne 1 ] && [ $exit_code -ne 10 ]; then
+            if [ $exit_code -ne 1 ] && [ $exit_code -ne 10 ] && [ $exit_code -ne 252 ]; then
                 if [ $id -eq -1 ]; then
                     yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
                     menu
@@ -345,10 +345,8 @@ menu() {
                 local file="${mediaFiles[$id]}"
 
                 if [ "${media_types[$(getDetails "$file" type)]}" = "video" ]; then
-                    echo "EDIT VIDEO"
                     editVideo "$file" "$id"
                 else
-                    echo "EDIT AUDIO"
                     editAudio "$file" "$id"
                 fi
                 menu
@@ -359,10 +357,14 @@ menu() {
                 menu
                 ;;
             8)
-                if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
-                    rm -f "${realFiles[$id]}"
-                    mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
-                    realFiles=("${realFiles[@]:0:$id}" "${realFiles[@]:$((id + 1))}")
+                if [ -z "${realFiles[$id]}" ]; then
+                    yad --warning --text="File was modified so it isn't linked to the real file." --button=gtk-ok:0
+                else
+                    if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
+                        rm -f "${realFiles[$id]}"
+                        mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
+                        realFiles=("${realFiles[@]:0:$id}" "${realFiles[@]:$((id + 1))}")
+                    fi
                 fi
                 menu
                 ;;
@@ -385,15 +387,3 @@ menu() {
 # about
 
 menu
-
-#  if [ -z "$file" ]; then
-#             yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
-#             composeMenu
-#             return
-#         fi
-#         if [ "$(getDetails "$file" type)" = "video" ]; then
-#             editVideo "$file"
-#         else
-#             editAudio "$file"
-#         fi
-#         composeMenu
