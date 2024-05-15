@@ -126,15 +126,20 @@ getDetails() {
 
 play() {
     local file=$1
+    local name
+    name=$(getDetails "$file" filename)
     local extension="${file##*.}"
-    cp "$file" "./playback.$extension"
-    celluloid "./playback.$extension"
-    rm -f "./playback.$extension"
+    mkdir "./playback"
+    cp "$file" "./playback/$name.$extension"
+    celluloid "./playback/$name.$extension"
+    rm -rf "./playback"
 }
 
 editVideo() {
     local file=$1
     local id=$2
+    local processed
+    local vid
     local reordered_formats=("$(getDetails "$file" extension)")
     for format in "${supported_video_formats[@]}"; do
         if [[ "$format" != "$(getDetails "$file" extension)" ]]; then
@@ -162,24 +167,40 @@ editVideo() {
     case $exit_code in
     2)
         IFS='|' read -ra ADDR <<<"$dane"
-        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[0]}")
+        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        vid="$temp_dir/${ADDR[0]}.${ADDR[1]}"
+        mv "$processed" "$vid"
         mediaFiles[id]="$vid"
         realFiles[id]=""
         yad --title="Przetwarzanie zakończone" --text="Plik został zaktualizowany" --button=gtk-ok:0
         ;;
     4)
         IFS='|' read -ra ADDR <<<"$dane"
-        vid=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[0]}")
+        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
         local save_path
         save_path=$(yad --save --file="$file" --filename="./${ADDR[0]}.${ADDR[1]}")
         if [ -z "$save_path" ]; then
-            rm -f "$vid"
+            rm -f "$processed"
             yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
         else
-            cp "$vid" "$save_path"
+            cp "$processed" "$save_path"
             realFiles+=("$save_path")
-            mediaFiles+=("$temp_dir/$(getDetails "$save_path" filename).${ADDR[1]}")
-            cp "$vid" "${mediaFiles[-1]}"
+            local new_file
+            new_file="${temp_dir}/$(getDetails "$save_path" filename).${ADDR[1]}"
+            if [[ -f "$new_file" ]]; then
+                local temp_subdir
+                temp_subdir=$(mktemp -d -p "$temp_dir")
+                vid="$temp_subdir/${ADDR[0]}.${ADDR[1]}"
+                mv "$processed" "$vid"
+                new_file="${temp_subdir}/$(getDetails "$save_path" filename).${ADDR[1]}"
+                mediaFiles+=("$new_file")
+                cp "$vid" "${mediaFiles[-1]}"
+            else
+                vid="$temp_dir/${ADDR[0]}.${ADDR[1]}"
+                mv "$processed" "$vid"
+                mediaFiles+=("$new_file")
+                cp "$vid" "${mediaFiles[-1]}"
+            fi
             yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
         fi
         ;;
@@ -226,17 +247,14 @@ processVideo() {
     fi
 
     # Create a list file for concatenation with the video looped n times
-    local list_file="${temp_file%.*}_list.txt"
+    local list_file="${converted_file%.*}_list.txt"
     for ((i = 0; i < loop_number + 1; i++)); do
         echo "file '$converted_file'" >>"$list_file"
     done
     local looped_file="${temp_file%.*}_looped.$target_format"
     ffmpeg -f concat -safe 0 -i "$list_file" -c copy "$looped_file" -y >>$FFMPEG_LOGS 2>&1
-    local vid
-    vid="$temp_dir/$7.$target_format"
-    mv "$looped_file" "$vid"
-    rm -f "$temp_file" "$converted_file" "$looped_file" "$list_file"
-    echo "$vid"
+    rm -f "$temp_file" "$converted_file" "$list_file"
+    echo "$looped_file"
 }
 
 menu() {
@@ -257,6 +275,7 @@ menu() {
     local exit_code
     id=$(yad --list --multiple \
         --title="Lista wczytanych plików" \
+        --button=gtk-info:12 \
         --button=gtk-add:10 \
         --button=gtk-remove:6 \
         --button=gtk-delete:8 \
@@ -324,6 +343,14 @@ menu() {
                 fi
             fi
             case $exit_code in
+            12)
+                echo "===================="
+                echo "${mediaFiles[$id]}"
+                echo "$(getDetails "${mediaFiles[$id]}" type) $(getDetails "${mediaFiles[$id]}" filename) $(getDetails "${mediaFiles[$id]}" extension) $(getDetails "${mediaFiles[$id]}" duration) $(getDetails "${mediaFiles[$id]}" format)"
+                echo "${realFiles[$id]}"
+                echo "===================="
+                menu
+                ;;
             0)
                 play "${mediaFiles[$id]}"
                 menu
