@@ -219,7 +219,7 @@ processVideo() {
         return
     fi
     local loop_number=$5
-    # local watermark=$6
+    local watermark=$6
     local temp_file
     temp_file=$(mktemp --suffix=".$current_format" --tmpdir="$temp_dir")
 
@@ -239,22 +239,29 @@ processVideo() {
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
     # Convert the video to the target format
-    local converted_file="${temp_file%.*}_converted.$target_format"
     if ! getDetails "$file" format | grep -q "$target_format"; then
+        local converted_file="${temp_file%.*}_converted.$target_format"
         ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
-    else
-        mv "$temp_file" "$converted_file"
+        mv "$converted_file" "$temp_file"
+    fi
+
+    # Add a watermark to the video if specified
+    if [ -n "$watermark" ]; then
+        local watermarked_file="${temp_file%.*}_watermarked.$target_format"
+        ffmpeg -i "$converted_file" -vf "drawtext=text='$watermark':x=(w-text_w)/2:y=(h-text_h)/2" -c copy "$watermarked_file" -y >>$FFMPEG_LOGS 2>&1
+        mv "$watermarked_file" "$temp_file"
     fi
 
     # Create a list file for concatenation with the video looped n times
-    local list_file="${converted_file%.*}_list.txt"
+    local list_file="${temp_file%.*}_list.txt"
     for ((i = 0; i < loop_number + 1; i++)); do
-        echo "file '$converted_file'" >>"$list_file"
+        echo "file '$temp_file'" >>"$list_file"
     done
     local looped_file="${temp_file%.*}_looped.$target_format"
     ffmpeg -f concat -safe 0 -i "$list_file" -c copy "$looped_file" -y >>$FFMPEG_LOGS 2>&1
-    rm -f "$temp_file" "$converted_file" "$list_file"
-    echo "$looped_file"
+    mv "$looped_file" "$temp_file"
+    rm -f "$list_file"
+    echo "$temp_file"
 }
 
 menu() {
