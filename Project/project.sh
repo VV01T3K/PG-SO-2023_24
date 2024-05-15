@@ -225,6 +225,10 @@ processVideo() {
     local target_format=$2
     local cut_front_percentage=$3
     local cut_back_percentage=$4
+    if [ "$(echo "$cut_front_percentage + $cut_back_percentage >= 100" | bc)" -eq 1 ]; then
+        yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
+        return
+    fi
     local loop_number=$5
     local watermark=$6
     local temp_file
@@ -245,7 +249,7 @@ processVideo() {
     # Use the calculated cut times to trim the video
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
-    # Convert the video to the target format and watermark it if needed
+    # Convert the video to the target format and watermark it
     if ! getDetails "$file" format | grep -q "$target_format"; then
         local converted_file="${temp_file%.*}_converted.$target_format"
         if [ -n "$watermark" ]; then
