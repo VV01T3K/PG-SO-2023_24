@@ -173,7 +173,7 @@ editVideo() {
             editVideo "$file" "$id"
             return
         fi
-        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
         vid="$temp_dir/${ADDR[0]}.${ADDR[1]}"
         mv "$processed" "$vid"
         mediaFiles[id]="$vid"
@@ -187,7 +187,7 @@ editVideo() {
             editVideo "$file" "$id"
             return
         fi
-        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}")
+        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
         local save_path
         save_path=$(yad --save --file="$file" --filename="./${ADDR[0]}.${ADDR[1]}")
         if [ -z "$save_path" ]; then
@@ -230,7 +230,9 @@ processVideo() {
         return
     fi
     local loop_number=$5
-    local watermark=$6
+    local watermark_text=$6
+    local watermark_font_size=$7
+    local watermark_color=$8
     local temp_file
     temp_file=$(mktemp --suffix=".$current_format" --tmpdir="$temp_dir")
 
@@ -250,14 +252,19 @@ processVideo() {
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
     # Convert the video to the target format and watermark it
+    local converted_file="${temp_file%.*}_converted.$target_format"
     if ! getDetails "$file" format | grep -q "$target_format"; then
-        local converted_file="${temp_file%.*}_converted.$target_format"
-        if [ -n "$watermark" ]; then
-            ffmpeg -i "$temp_file" -vf "drawtext=text='$watermark':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+        if [ -n "$watermark_text" ]; then
+            ffmpeg -i "$temp_file" -vf "drawtext=text='$watermark_text':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=$watermark_font_size:fontcolor=$watermark_color" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
         else
             ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
         fi
         mv "$converted_file" "$temp_file"
+    else
+        if [ -n "$watermark_text" ]; then
+            ffmpeg -i "$temp_file" -vf "drawtext=text='$watermark_text':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=$watermark_font_size:fontcolor=$watermark_color" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
+            mv "$converted_file" "$temp_file"
+        fi
     fi
 
     # Create a list file for concatenation with the video looped n times
