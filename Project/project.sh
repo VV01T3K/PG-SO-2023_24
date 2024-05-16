@@ -214,6 +214,7 @@ openCombineForm() {
 
 editMediaFile() {
     local file=$1
+    local type="${media_types["$(getDetails "$file" type)"]}"
     local id=$2
     openForm "$file"
     case $exit_code_global in
@@ -264,6 +265,7 @@ processMediaFile() {
     local watermark_font_size=$7
     local watermark_color=$8
     local temp_file
+
     temp_file=$(mktemp --suffix=".$current_format" --tmpdir="$temp_dir")
 
     # Get the duration of the video in seconds
@@ -402,7 +404,7 @@ combineMenu() {
     local table=()
     local video_count=0
     local audio_count=0
-    local mode="mixed"
+    # local mode="mixed"
     for id in "${selected_files[@]}"; do
         file="${mediaFiles[$id]}"
         filename=$(getDetails "$file" filename)
@@ -417,11 +419,11 @@ combineMenu() {
         fi
         table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
     done
-    if [ "$video_count" -eq 0 ]; then
-        mode="audio"
-    else
-        mode="video"
-    fi
+    # if [ "$video_count" -eq 0 ]; then
+    #     mode="audio"
+    # else
+    #     mode="video"
+    # fi
 
     local files
     local exit_code
