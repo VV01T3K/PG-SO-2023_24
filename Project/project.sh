@@ -338,6 +338,80 @@ processMediaFile() {
     echo "$temp_file"
 }
 
+overlayMediaFiles() {
+    local files=("$@")
+    openCombineForm "${files[0]}"
+    case $exit_code_global in
+    1)
+        return
+        ;;
+    2)
+        IFS='|' read -ra ADDR <<<"$dane"
+        local target_format=${ADDR[0]}
+        ;;
+    esac
+    local output_file
+    output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
+    max_duration=0
+    converted_files=()
+    for file in "${files[@]}"; do
+        file=$(processMediaFile "$file" "$target_format" 0 0 0 "" "" "")
+        duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+        if (($(echo "$duration > $max_duration" | bc -l))); then
+            max_duration=$duration
+        fi
+        converted_files+=("$file")
+    done
+
+    # Initialize the filter_complex part of the command
+    filter_complex=""
+
+    # Loop through each file in the converted_files array to construct the filter_complex part
+    for i in "${!converted_files[@]}"; do
+        filter_complex+="[${i}:a:0]"
+    done
+
+    # Add the amix filter with the number of inputs equal to the number of files
+    filter_complex+="amix=inputs=${#converted_files[@]}:duration=longest[aout]"
+
+    # Construct and execute the ffmpeg command
+    ffmpeg_command="ffmpeg"
+    for file in "${converted_files[@]}"; do
+        ffmpeg_command+=" -i \"$file\""
+    done
+    ffmpeg_command+=" -filter_complex \"$filter_complex\" -map \"[aout]\" \"$output_file\" -y 2>ffmpeg_progress.log &"
+
+    eval "$ffmpeg_command"
+    ffmpeg_pid=$!
+
+    local conversion_complete=0
+    (
+        while kill -0 $ffmpeg_pid 2>/dev/null; do
+            if grep -q "Conversion failed!" ffmpeg_progress.log; then
+                kill $ffmpeg_pid
+                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie. Conversion failed!" --button=gtk-close:0
+                return
+            fi
+            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+            hours=$(echo "$current_time" | cut -d':' -f1)
+            minutes=$(echo "$current_time" | cut -d':' -f2)
+            seconds=$(echo "$current_time" | cut -d':' -f3)
+            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+            progress=$(echo "scale=2; $current_seconds/($max_duration)*100" | bc)
+            echo "$progress"
+            sleep 1
+        done
+        echo " # Konwersja zakończona"
+        echo "100"
+    ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+    if [ $conversion_complete -ne 1 ]; then
+        kill $ffmpeg_pid
+        yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+        return
+    fi
+    echo "$output_file"
+}
+
 concatMediaFiles() {
     local files=("$@")
     openCombineForm "${files[0]}"
@@ -369,14 +443,19 @@ concatMediaFiles() {
     done
 
     # Step 3: Proceed with concatenation as before, using processed files
-    ffmpeg -f concat -safe 0 -i "$temp_file" \
-        -vf "drawtext=text='$watermark_text': \
+    if [[ "${media_types["$(getDetails "${files[0]}" type)"]}" == "video" ]]; then
+        ffmpeg -f concat -safe 0 -i "$temp_file" \
+            -vf "drawtext=text='$watermark_text': \
               x=$watermark_font_size/3: \
               y=h-text_h-10: \
               fontsize=$watermark_font_size: \
               fontcolor=$watermark_color" \
-        "$output_file" -y 2>ffmpeg_progress.log &
-    ffmpeg_pid=$!
+            "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+    else
+        ffmpeg -f concat -safe 0 -i "$temp_file" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+    fi
 
     local conversion_complete=0
     (
@@ -410,7 +489,6 @@ combineMenu() {
     local table=()
     local video_count=0
     local audio_count=0
-    local mode="mixed"
     for id in "${selected_files[@]}"; do
         file="${mediaFiles[$id]}"
         filename=$(getDetails "$file" filename)
@@ -418,19 +496,21 @@ combineMenu() {
         duration=$(getDetails "$file" duration)
         extension=$(getDetails "$file" extension)
         type=$(getDetails "$file" type)
-        if [ "$(getDetails "${mediaFiles[$id]}" type)" = "video" ]; then
+        mediaTypeKey=$(getDetails "${mediaFiles[$id]}" type)
+        if [[ "${media_types[$mediaTypeKey]}" == "video" ]]; then
             video_count=$((video_count + 1))
         else
             audio_count=$((audio_count + 1))
         fi
         table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
     done
+    local mode="mixed"
     if [ "$video_count" -eq 0 ]; then
         mode="audio"
-    else
+    fi
+    if [ "$audio_count" -eq 0 ]; then
         mode="video"
     fi
-
     local files
     local exit_code
     local processed
@@ -438,7 +518,6 @@ combineMenu() {
         yad --list --editable --editable-cols=""
         --no-click --grid-lines=both --dclick-action=
         --title="Lista wczytanych plików"
-        --button=gtk-close:1
         --width=700 --height=500
         --column=ID:HD
         --column=TYPE:IMG
@@ -450,18 +529,15 @@ combineMenu() {
         --separator=!
         "${table[@]}"
     )
-    # if [ "$mode" = "mixed" ]; then
-    #     commd+=(--button=Compose:2)
-    # else
-    commd+=(--button=Concat:4)
-    #     if [ "$mode" = "video" ]; then
-    #         commd+=(
-
-    #         )
-    #     else
-    #         commd+=(--button=Overlap:6)
-    #     fi
-    # fi
+    if [ "$mode" = "mixed" ]; then
+        commd+=(--button=Compose:2)
+    else
+        commd+=(--button=Concat:4)
+        if [ "$mode" = "audio" ]; then
+            commd+=(--button=Overlap:6)
+        fi
+    fi
+    commd+=(--button=gtk-close:1)
     all=$("${commd[@]}")
     exit_code=$?
     readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
@@ -475,6 +551,25 @@ combineMenu() {
         ;;
     4)
         processed=$(concatMediaFiles "${files[@]}")
+        if [ -z "$processed" ]; then
+            rm -f "$processed"
+            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+        else
+            local save_path
+            save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/combined.${processed##*.}")
+            if [ -z "$save_path" ]; then
+                rm -f "$processed"
+                yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            else
+                mv "$processed" "$save_path"
+                mediaFiles+=("$save_path")
+                yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
+            fi
+        fi
+        menu
+        ;;
+    6)
+        processed=$(overlayMediaFiles "${files[@]}")
         if [ -z "$processed" ]; then
             rm -f "$processed"
             yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
