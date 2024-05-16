@@ -358,8 +358,17 @@ menu() {
         esac
     else
         if [[ "$id" == *"!"* ]]; then
+            input=$(echo "$id!" | tr -d '[:space:]')
+            local array=()
+            IFS='!' read -r -a array <<<"$input"
+            local id
+            local ids=()
+            for element in "${array[@]}"; do
+                ids+=($((element - 1)))
+            done
+
             case $exit_code in
-            0 | 4 | 6 | 8)
+            0 | 4 | 8)
                 yad --title="Błąd" --text="Wybrano wiecej niż jeden plik." --button=gtk-close:0
                 menu
                 ;;
@@ -369,6 +378,23 @@ menu() {
                 ;;
             2)
                 echo "COMPOSE GO ON"
+                menu
+                ;;
+            6)
+                declare -a newMediaFiles=()
+                for ((i = 0; i < ${#mediaFiles[@]}; i++)); do
+                    matchFound=false
+                    for id in "${ids[@]}"; do
+                        if [[ $id -eq $i ]]; then
+                            matchFound=true
+                            break
+                        fi
+                    done
+                    if [[ $matchFound == false ]]; then
+                        newMediaFiles+=("${mediaFiles[i]}")
+                    fi
+                done
+                mediaFiles=("${newMediaFiles[@]}")
                 menu
                 ;;
             10)
