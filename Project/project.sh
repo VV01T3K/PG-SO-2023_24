@@ -177,6 +177,40 @@ openForm() {
     dane=$("${form[@]}")
     exit_code_global=$?
 }
+openCombineForm() {
+    local file=$1
+    local type="${media_types["$(getDetails "$file" type)"]}"
+    local processed
+    local supported_media_formats=()
+    if [ "$type" = "video" ]; then
+        supported_media_formats=("${supported_video_formats[@]}")
+    else
+        supported_media_formats=("${supported_audio_formats[@]}")
+    fi
+    local reordered_formats=("$(getDetails "$file" extension)")
+    for format in "${supported_media_formats[@]}"; do
+        if [[ "$format" != "$(getDetails "$file" extension)" ]]; then
+            reordered_formats+=("$format")
+        fi
+    done
+    printf -v media_formats "%s\\!" "${reordered_formats[@]}"
+    local media_formats=${media_formats%\\!}
+    form=(
+        yad --form --title="Single File Edit" --text="You can make changes:"
+        --button=gtk-save:2
+        --button=gtk-cancel:1
+        --field="Format:CB" "$media_formats"
+    )
+    if [ "$type" = "video" ]; then
+        form+=(
+            --field="Watermark Text" ""
+            --field="Watermark Font Size:NUM" "16"
+            --field="Watermark Color:CLR" "#000000"
+        )
+    fi
+    dane=$("${form[@]}")
+    exit_code_global=$?
+}
 
 editMediaFile() {
     local file=$1
@@ -283,10 +317,10 @@ processMediaFile() {
             done
             echo " # Konwersja zakończona"
             echo "100"
-        ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
+        ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
         if [ $conversion_complete -ne 1 ]; then
             kill $ffmpeg_pid
-            yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+            yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
             return 0
         fi
         mv "$converted_file" "$temp_file"
@@ -305,18 +339,62 @@ processMediaFile() {
 }
 
 concatMediaFiles() {
-
-    local target_fromat
-
     local files=("$@")
+    openCombineForm "${files[0]}"
+    case $exit_code_global in
+    1)
+        return
+        ;;
+    2)
+        IFS='|' read -ra ADDR <<<"$dane"
+        local target_format=${ADDR[0]}
+        if [[ "${media_types["$(getDetails "${files[0]}" type)"]}" == "video" ]]; then
+            local watermark_text=${ADDR[1]}
+            local watermark_font_size=${ADDR[2]}
+            local watermark_color=${ADDR[3]}
+        fi
+        ;;
+    esac
     local temp_file
+    combined_duration=0
     temp_file=$(mktemp --suffix=".txt" --tmpdir="$temp_dir")
     for file in "${files[@]}"; do
         echo "file '$file'" >>"$temp_file"
+        duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+        combined_duration=$(echo "$combined_duration + $duration" | bc)
     done
     local output_file
-    output_file=$(mktemp --suffix=".mp4" --tmpdir="$temp_dir")
-    ffmpeg -f concat -safe 0 -i "$temp_file" -c copy "$output_file" -y >>$FFMPEG_LOGS 2>&1
+    output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
+
+    ffmpeg -f concat -safe 0 -i "$temp_file" \
+        -vf "drawtext=text=$watermark_text: \
+            x=$watermark_font_size/3: \
+            y=h-text_h-10: \
+            fontsize=$watermark_font_size: \
+            fontcolor=$watermark_color" \
+        "$output_file" -y 2>ffmpeg_progress.log &
+    ffmpeg_pid=$!
+
+    local conversion_complete=0
+    (
+        while kill -0 $ffmpeg_pid 2>/dev/null; do
+            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+            hours=$(echo "$current_time" | cut -d':' -f1)
+            minutes=$(echo "$current_time" | cut -d':' -f2)
+            seconds=$(echo "$current_time" | cut -d':' -f3)
+            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+            progress=$(echo "scale=2; $current_seconds/($combined_duration)*100" | bc)
+            echo "$progress"
+            sleep 1
+        done
+        echo " # Konwersja zakończona"
+        echo "100"
+    ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+    if [ $conversion_complete -ne 1 ]; then
+        kill $ffmpeg_pid
+        yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+        return
+    fi
     echo "$output_file"
 }
 
@@ -364,18 +442,18 @@ combineMenu() {
         --separator=!
         "${table[@]}"
     )
-    if [ "$mode" = "mixed" ]; then
-        commd+=(--button=Compose:2)
-    else
-        commd+=(--button=Concat:4)
-        if [ "$mode" = "video" ]; then
-            commd+=(
+    # if [ "$mode" = "mixed" ]; then
+    #     commd+=(--button=Compose:2)
+    # else
+    commd+=(--button=Concat:4)
+    #     if [ "$mode" = "video" ]; then
+    #         commd+=(
 
-            )
-        else
-            commd+=(--button=Overlap:6)
-        fi
-    fi
+    #         )
+    #     else
+    #         commd+=(--button=Overlap:6)
+    #     fi
+    # fi
     all=$("${commd[@]}")
     exit_code=$?
     readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
@@ -387,7 +465,7 @@ combineMenu() {
     1)
         menu
         ;;
-    6)
+    4)
         processed=$(concatMediaFiles "${files[@]}")
         if [ -z "$processed" ]; then
             rm -f "$processed"
