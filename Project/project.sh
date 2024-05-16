@@ -332,9 +332,21 @@ composeMenu() {
         "${table[@]}")
     exit_code=$?
     readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
+    local video_count=0
+    local audio_count=0
     for id in "${selected_files[@]}"; do
         files+=("${mediaFiles[$id]}")
+        if [ "$(getDetails "${mediaFiles[$id]}" type)" = "video" ]; then
+            video_count=$((video_count + 1))
+        else
+            audio_count=$((audio_count + 1))
+        fi
     done
+    if [ "$video_count" -eq 0 ] || [ "$audio_count" -eq 0 ]; then
+        true
+    else
+        false
+    fi
 
     case $exit_code in
     1)
