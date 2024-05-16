@@ -22,8 +22,8 @@ exec 2>>$LOGS
 
 temp_dir=$(mktemp -d)
 
-declare -a loadedMediaFiles
-declare -a originalloadedMediaFiles
+declare -a mediaFiles
+declare -a realFiles
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
 declare -A media_types=(
@@ -32,42 +32,6 @@ declare -A media_types=(
     ["audio-x-generic-symbolic"]="audio"
     ["audio"]="audio-x-generic-symbolic"
 )
-
-getSubDir() {
-    mktemp -d -p "$temp_dir"
-}
-
-loadFile() {
-    local file=$1
-    originalloadedMediaFiles+=("$file")
-    loadedMediaFiles+=("$(getSubDir)/$(basename "$file")")
-    cp "$file" "${loadedMediaFiles[-1]}"
-}
-applyFile() {
-    local new_file=$1
-    local id=$2
-    originalloadedMediaFiles[id]=""
-    loadedMediaFiles[id]="$(getSubDir)/$(basename "$new_file")"
-}
-newFile() {
-    local temporary_file=$1
-    loadedMediaFiles+=("$(getSubDir)/$(basename "$temporary_file")")
-    originalloadedMediaFiles+=("")
-    mv "$temporary_file" "${loadedMediaFiles[-1]}"
-}
-saveFile() {
-    local temporary_file=$1
-    local save_path
-    save_path=$(yad --save --file="$temporary_file" --filename="./$(basename "$temporary_file")")
-    if [ -z "$save_path" ]; then
-        rm -f "$temporary_file"
-        yad --title="Błąd Przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
-    else
-        mv "$temporary_file" "$save_path"
-        newFile "$save_path"
-        yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
-    fi
-}
 
 isInArray() {
     local element=$1
@@ -116,9 +80,9 @@ addNewFiles() {
     added_file_flag=0
     for file in "${ADDR[@]}"; do
         if [ ! -d "$file" ]; then
-            originalloadedMediaFiles+=("$file")
-            loadedMediaFiles+=("$temp_dir/$(basename "$file")")
-            cp "$file" "${loadedMediaFiles[-1]}"
+            realFiles+=("$file")
+            mediaFiles+=("$temp_dir/$(basename "$file")")
+            cp "$file" "${mediaFiles[-1]}"
             added_file_flag=1
         fi
     done
@@ -128,7 +92,7 @@ addNewFiles() {
 }
 
 # * The `getDetails()` function in the provided shell script is responsible for extracting specific
-# * details about a video file. It takes two parameters: the index of the video file in the `loadedMediaFiles`
+# * details about a video file. It takes two parameters: the index of the video file in the `mediaFiles`
 # * array and the specific detail to retrieve (filename, extension, duration, or format).
 getDetails() {
     local file=$1
@@ -185,27 +149,21 @@ editVideo() {
     printf -v video_formats "%s\\!" "${reordered_formats[@]}"
     local video_formats=${video_formats%\\!}
     local dane
-    # Initialize the command with basic fields
-    form=(
-        yad --form --title="Single File Edit" --text="You can make changes:"
-        --button=gtk-save:4
-        --button=gtk-apply:2
-        --button=gtk-cancel:1
-        --field="Name" "$(getDetails "$file" filename)"
-        --field="Format:CB" "$video_formats"
-        --field="Duration:RO" "$(getDetails "$file" duration)"
-        --field="Time [%] to cut from start:SCL" "0:100:1"
-        --field="Time [%] to cut from end:SCL" "0:100:1"
-        --field="Number of loops:NUM" "0..100..1"
-    )
-    if [ "${media_types["$(getDetails "$file" type)"]}" = "video" ]; then
-        form+=(
-            --field="Watermark Text" ""
-            --field="Watermark Font Size:NUM" "16"
+    dane=$(
+        yad --form --title="Single File Edit" --text="Please enter your details:" \
+            --button=gtk-save:4 \
+            --button=gtk-apply:2 \
+            --button=gtk-cancel:1 \
+            --field="Name" "$(getDetails "$file" filename)" \
+            --field="Format:CB" "$video_formats" \
+            --field="Duration:RO" "$(getDetails "$file" duration)" \
+            --field="Time [%] to cut from start:SCL" "0:100:1" \
+            --field="Time [%] to cut from end:SCL" "0:100:1" \
+            --field="Number of loops:NUM" "0..100..1" \
+            --field="Watermark Text" "" \
+            --field="Watermark Font Size:NUM" "16" \
             --field="Watermark Color:CLR"
-        )
-    fi
-    dane=$("${form[@]}")
+    )
     local exit_code=$?
     case $exit_code in
     2)
@@ -215,11 +173,11 @@ editVideo() {
             editVideo "$file" "$id"
             return
         fi
-        processed=$(processMediaFile "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
+        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
         vid="$temp_dir/${ADDR[0]}.${ADDR[1]}"
         mv "$processed" "$vid"
-        loadedMediaFiles[id]="$vid"
-        originalloadedMediaFiles[id]=""
+        mediaFiles[id]="$vid"
+        realFiles[id]=""
         yad --title="Przetwarzanie zakończone" --text="Plik został zaktualizowany" --button=gtk-ok:0
         ;;
     4)
@@ -229,7 +187,7 @@ editVideo() {
             editVideo "$file" "$id"
             return
         fi
-        processed=$(processMediaFile "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
+        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
         local save_path
         save_path=$(yad --save --file="$file" --filename="./${ADDR[0]}.${ADDR[1]}")
         if [ -z "$save_path" ]; then
@@ -237,7 +195,7 @@ editVideo() {
             yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
         else
             cp "$processed" "$save_path"
-            originalloadedMediaFiles+=("$save_path")
+            realFiles+=("$save_path")
             local new_file
             new_file="${temp_dir}/$(getDetails "$save_path" filename).${ADDR[1]}"
             if [[ -f "$new_file" ]]; then
@@ -246,13 +204,13 @@ editVideo() {
                 vid="$temp_subdir/${ADDR[0]}.${ADDR[1]}"
                 mv "$processed" "$vid"
                 new_file="${temp_subdir}/$(getDetails "$save_path" filename).${ADDR[1]}"
-                loadedMediaFiles+=("$new_file")
-                cp "$vid" "${loadedMediaFiles[-1]}"
+                mediaFiles+=("$new_file")
+                cp "$vid" "${mediaFiles[-1]}"
             else
                 vid="$temp_dir/${ADDR[0]}.${ADDR[1]}"
                 mv "$processed" "$vid"
-                loadedMediaFiles+=("$new_file")
-                cp "$vid" "${loadedMediaFiles[-1]}"
+                mediaFiles+=("$new_file")
+                cp "$vid" "${mediaFiles[-1]}"
             fi
             yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
         fi
@@ -260,27 +218,21 @@ editVideo() {
     esac
 }
 
-processMediaFile() {
+processVideo() {
     echo "" >$FFMPEG_LOGS
     local file=$1
-    local type
-    type="${media_types["$(getDetails "$file" type)"]}"
     local current_format="${file##*.}"
     local target_format=$2
     local cut_front_percentage=$3
     local cut_back_percentage=$4
-    local loop_number=$5
-
-    if [ "$type" = "video" ]; then
-        local watermark_text=$6
-        local watermark_font_size=$7
-        local watermark_color=$8
-    fi
-
     if [ "$(echo "$cut_front_percentage + $cut_back_percentage >= 100" | bc)" -eq 1 ]; then
         yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
         return
     fi
+    local loop_number=$5
+    local watermark_text=$6
+    local watermark_font_size=$7
+    local watermark_color=$8
     local temp_file
     temp_file=$(mktemp --suffix=".$current_format" --tmpdir="$temp_dir")
 
@@ -305,7 +257,7 @@ processMediaFile() {
     if ! getDetails "$file" format | grep -q "$target_format"; then
         ffmpeg_query="ffmpeg -i '$temp_file' '$converted_file' -y"
     fi
-    if [ "$type" = "video" ] && [ -n "$watermark_text" ]; then
+    if [ -n "$watermark_text" ]; then
         ffmpeg_query="ffmpeg -i '$temp_file' \\
             -vf 'drawtext=text=$watermark_text: \\
             x=$watermark_font_size/3: \\
@@ -335,7 +287,7 @@ menu() {
     local table=()
     local index=1
 
-    for file in "${loadedMediaFiles[@]}"; do
+    for file in "${mediaFiles[@]}"; do
         filename=$(getDetails "$file" filename)
         format=$(getDetails "$file" format)
         duration=$(getDetails "$file" duration)
@@ -419,14 +371,14 @@ menu() {
             case $exit_code in
             12)
                 echo "===================="
-                echo "${loadedMediaFiles[$id]}"
-                echo "$(getDetails "${loadedMediaFiles[$id]}" type) $(getDetails "${loadedMediaFiles[$id]}" filename) $(getDetails "${loadedMediaFiles[$id]}" extension) $(getDetails "${loadedMediaFiles[$id]}" duration) $(getDetails "${loadedMediaFiles[$id]}" format)"
-                echo "${originalloadedMediaFiles[$id]}"
+                echo "${mediaFiles[$id]}"
+                echo "$(getDetails "${mediaFiles[$id]}" type) $(getDetails "${mediaFiles[$id]}" filename) $(getDetails "${mediaFiles[$id]}" extension) $(getDetails "${mediaFiles[$id]}" duration) $(getDetails "${mediaFiles[$id]}" format)"
+                echo "${realFiles[$id]}"
                 echo "===================="
                 menu
                 ;;
             0)
-                play "${loadedMediaFiles[$id]}"
+                play "${mediaFiles[$id]}"
                 menu
                 ;;
             1)
@@ -439,7 +391,7 @@ menu() {
                 menu
                 ;;
             4)
-                local file="${loadedMediaFiles[$id]}"
+                local file="${mediaFiles[$id]}"
 
                 if [ "${media_types[$(getDetails "$file" type)]}" = "video" ]; then
                     editVideo "$file" "$id"
@@ -449,18 +401,18 @@ menu() {
                 menu
                 ;;
             6)
-                loadedMediaFiles=("${loadedMediaFiles[@]:0:$id}" "${loadedMediaFiles[@]:$((id + 1))}")
-                originalloadedMediaFiles=("${originalloadedMediaFiles[@]:0:$id}" "${originalloadedMediaFiles[@]:$((id + 1))}")
+                mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
+                realFiles=("${realFiles[@]:0:$id}" "${realFiles[@]:$((id + 1))}")
                 menu
                 ;;
             8)
-                if [ -z "${originalloadedMediaFiles[$id]}" ]; then
+                if [ -z "${realFiles[$id]}" ]; then
                     yad --warning --text="File was modified so it isn't linked to the real file." --button=gtk-ok:0
                 else
                     if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć plik?" --button=gtk-yes:0 --button=gtk-no:1; then
-                        rm -f "${originalloadedMediaFiles[$id]}"
-                        loadedMediaFiles=("${loadedMediaFiles[@]:0:$id}" "${loadedMediaFiles[@]:$((id + 1))}")
-                        originalloadedMediaFiles=("${originalloadedMediaFiles[@]:0:$id}" "${originalloadedMediaFiles[@]:$((id + 1))}")
+                        rm -f "${realFiles[$id]}"
+                        mediaFiles=("${mediaFiles[@]:0:$id}" "${mediaFiles[@]:$((id + 1))}")
+                        realFiles=("${realFiles[@]:0:$id}" "${realFiles[@]:$((id + 1))}")
                     fi
                 fi
                 menu
