@@ -291,14 +291,12 @@ processMediaFile() {
             y=h-text_h-10: \
             fontsize=$watermark_font_size: \
             fontcolor=$watermark_color" \
-            -c:v libx264 -crf 18 -preset slow \
-            -c:a aac -b:a 192k -ac 2 -ignore_unknown \
             "$converted_file" -y \
             2>ffmpeg_progress.log &
         ffmpeg_pid=$!
     else
         if ! getDetails "$file" format | grep -q "$target_format"; then
-            ffmpeg -i "$temp_file" -c:v libx264 -crf 18 -preset slow -c:a aac -b:a 192k -ac 2 -ignore_unknown "$converted_file" -y 2>ffmpeg_progress.log &
+            ffmpeg -i "$temp_file" "$converted_file" -y 2>ffmpeg_progress.log &
             ffmpeg_pid=$!
         fi
     fi
@@ -364,11 +362,8 @@ concatMediaFiles() {
     output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
 
     for file in "${files[@]}"; do
-        echo "file '$file'" >>"$temp_file"
-        filename=$(basename -- "$file")
-        extension="${filename##*.}"
-        filename="${filename%.*}"
         file=$(processMediaFile "$file" "$target_format" 0 0 0 "" "" "")
+        echo "file '$file'" >>"$temp_file"
         duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
         combined_duration=$(echo "$combined_duration + $duration" | bc)
     done
@@ -380,8 +375,6 @@ concatMediaFiles() {
               y=h-text_h-10: \
               fontsize=$watermark_font_size: \
               fontcolor=$watermark_color" \
-        -c:v libx264 -crf 18 -preset slow \
-        -c:a aac -b:a 192k -ac 2 -ignore_unknown \
         "$output_file" -y 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
 
