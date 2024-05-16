@@ -21,7 +21,8 @@ echo "" >$FFMPEG_LOGS
 exec 2>>$LOGS
 
 temp_dir=$(mktemp -d)
-
+exit_code_global=""
+dane=""
 declare -a mediaFiles
 supported_video_formats=("mp4" "mov" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
@@ -137,10 +138,8 @@ play() {
     celluloid "./playback/$name.$extension"
     rm -rf "./playback"
 }
-
-editMediaFile() {
+openForm() {
     local file=$1
-    local id=$2
     local type="${media_types["$(getDetails "$file" type)"]}"
     local processed
     local supported_media_formats=()
@@ -157,7 +156,6 @@ editMediaFile() {
     done
     printf -v media_formats "%s\\!" "${reordered_formats[@]}"
     local media_formats=${media_formats%\\!}
-    local dane
     form=(
         yad --form --title="Single File Edit" --text="You can make changes:"
         --button=gtk-save:2
@@ -177,8 +175,14 @@ editMediaFile() {
         )
     fi
     dane=$("${form[@]}")
-    local exit_code=$?
-    case $exit_code in
+    exit_code_global=$?
+}
+
+editMediaFile() {
+    local file=$1
+    local id=$2
+    openForm "$file"
+    case $exit_code_global in
     2)
         IFS='|' read -ra ADDR <<<"$dane"
         if [ "$(echo "${ADDR[3]} + ${ADDR[4]} >= 100" | bc)" -eq 1 ]; then
@@ -194,12 +198,11 @@ editMediaFile() {
         if [ -z "$processed" ]; then
             return
         fi
-        echo "$processed"
         local save_path
         save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/${ADDR[0]}.${ADDR[1]}")
         if [ -z "$save_path" ]; then
             rm -f "$processed"
-            yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         else
             mv "$processed" "$save_path"
             mediaFiles+=("$save_path")
@@ -301,8 +304,27 @@ processMediaFile() {
     echo "$temp_file"
 }
 
-composeMenu() {
+concatMediaFiles() {
+
+    local target_fromat
+
+    local files=("$@")
+    local temp_file
+    temp_file=$(mktemp --suffix=".txt" --tmpdir="$temp_dir")
+    for file in "${files[@]}"; do
+        echo "file '$file'" >>"$temp_file"
+    done
+    local output_file
+    output_file=$(mktemp --suffix=".mp4" --tmpdir="$temp_dir")
+    ffmpeg -f concat -safe 0 -i "$temp_file" -c copy "$output_file" -y >>$FFMPEG_LOGS 2>&1
+    echo "$output_file"
+}
+
+combineMenu() {
     local table=()
+    local video_count=0
+    local audio_count=0
+    local mode="mixed"
     for id in "${selected_files[@]}"; do
         file="${mediaFiles[$id]}"
         filename=$(getDetails "$file" filename)
@@ -310,51 +332,79 @@ composeMenu() {
         duration=$(getDetails "$file" duration)
         extension=$(getDetails "$file" extension)
         type=$(getDetails "$file" type)
-        table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
-    done
-
-    local files
-    local exit_code
-    all=$(yad --list --editable --editable-cols="" \
-        --no-click --grid-lines=both --dclick-action= \
-        --title="Lista wczytanych plików" \
-        --button=Compose:2 \
-        --button=gtk-close:1 \
-        --width=700 --height=500 \
-        --column=ID:HD \
-        --column=TYPE:IMG \
-        --column=NAME \
-        --column=EXT \
-        --column=Duration \
-        --column=FORMAT \
-        --print-all \
-        --separator=! \
-        "${table[@]}")
-    exit_code=$?
-    readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
-    local video_count=0
-    local audio_count=0
-    for id in "${selected_files[@]}"; do
-        files+=("${mediaFiles[$id]}")
         if [ "$(getDetails "${mediaFiles[$id]}" type)" = "video" ]; then
             video_count=$((video_count + 1))
         else
             audio_count=$((audio_count + 1))
         fi
+        table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
     done
-    if [ "$video_count" -eq 0 ] || [ "$audio_count" -eq 0 ]; then
-        true
+    if [ "$video_count" -eq 0 ]; then
+        mode="audio"
     else
-        false
+        mode="video"
     fi
+
+    local files
+    local exit_code
+    local processed
+    commd=(
+        yad --list --editable --editable-cols=""
+        --no-click --grid-lines=both --dclick-action=
+        --title="Lista wczytanych plików"
+        --button=gtk-close:1
+        --width=700 --height=500
+        --column=ID:HD
+        --column=TYPE:IMG
+        --column=NAME
+        --column=EXT
+        --column=Duration
+        --column=FORMAT
+        --print-all
+        --separator=!
+        "${table[@]}"
+    )
+    if [ "$mode" = "mixed" ]; then
+        commd+=(--button=Compose:2)
+    else
+        commd+=(--button=Concat:4)
+        if [ "$mode" = "video" ]; then
+            commd+=(
+
+            )
+        else
+            commd+=(--button=Overlap:6)
+        fi
+    fi
+    all=$("${commd[@]}")
+    exit_code=$?
+    readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
+    for id in "${selected_files[@]}"; do
+        files+=("${mediaFiles[$id]}")
+    done
 
     case $exit_code in
     1)
-        rm -rf "$temp_dir"
-        exit 0
+        menu
         ;;
-    2)
-        composeMenu
+    6)
+        processed=$(concatMediaFiles "${files[@]}")
+        if [ -z "$processed" ]; then
+            rm -f "$processed"
+            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+        else
+            local save_path
+            save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/${ADDR[0]}.${ADDR[1]}")
+            if [ -z "$save_path" ]; then
+                rm -f "$processed"
+                yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            else
+                mv "$processed" "$save_path"
+                mediaFiles+=("$save_path")
+                yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
+            fi
+        fi
+        menu
         ;;
     esac
 }
@@ -380,7 +430,7 @@ menu() {
         --button=gtk-add:10 \
         --button=gtk-remove:6 \
         --button=gtk-delete:8 \
-        --button=Compose:2 \
+        --button=Combine:2 \
         --button=gtk-edit:4 \
         --button=gtk-media-play:0 \
         --button=gtk-close:1 \
@@ -436,7 +486,7 @@ menu() {
                 ;;
             2)
                 selected_files=("${ids[@]}")
-                composeMenu
+                combineMenu
                 menu
                 ;;
             6)
@@ -480,8 +530,7 @@ menu() {
                 exit 0
                 ;;
             2)
-                echo "COMPOSE GO ON"
-                composeMenu
+                yad --title="Błąd" --text="Wybrano za mało plików." --button=gtk-close:0
                 menu
                 ;;
             4)
