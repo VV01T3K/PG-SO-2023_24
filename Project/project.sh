@@ -63,6 +63,12 @@ done
 addNewFiles() {
     selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple \
         --file-filter="$(
+            echo -n "Media | "
+            for format in "${supported_video_formats[@]}" "${supported_audio_formats[@]}"; do
+                echo -n "*.$format "
+            done
+        )" \
+        --file-filter="$(
             echo -n "Wideo | "
             for format in "${supported_video_formats[@]}"; do
                 echo -n "*.$format "
@@ -73,6 +79,7 @@ addNewFiles() {
             for format in "${supported_audio_formats[@]}"; do
                 echo -n "*.$format "
             done
+
         )")
 
     IFS='|' read -ra ADDR <<<"$selected_files"
@@ -131,43 +138,59 @@ play() {
     rm -rf "./playback"
 }
 
-editVideo() {
+editMediaFile() {
     local file=$1
     local id=$2
+    local type="${media_types["$(getDetails "$file" type)"]}"
     local processed
+    local supported_media_formats=()
+    if [ "$type" = "video" ]; then
+        supported_media_formats=("${supported_video_formats[@]}")
+    else
+        supported_media_formats=("${supported_audio_formats[@]}")
+    fi
     local reordered_formats=("$(getDetails "$file" extension)")
-    for format in "${supported_video_formats[@]}"; do
+    for format in "${supported_media_formats[@]}"; do
         if [[ "$format" != "$(getDetails "$file" extension)" ]]; then
             reordered_formats+=("$format")
         fi
     done
-    printf -v video_formats "%s\\!" "${reordered_formats[@]}"
-    local video_formats=${video_formats%\\!}
+    printf -v media_formats "%s\\!" "${reordered_formats[@]}"
+    local media_formats=${media_formats%\\!}
     local dane
-    dane=$(
-        yad --form --title="Single File Edit" --text="Please enter your details:" \
-            --button=gtk-save:2 \
-            --button=gtk-cancel:1 \
-            --field="Name:RO" "$(getDetails "$file" filename)" \
-            --field="Format:CB" "$video_formats" \
-            --field="Duration:RO" "$(getDetails "$file" duration)" \
-            --field="Time [%] to cut from start:SCL" "0:100:1" \
-            --field="Time [%] to cut from end:SCL" "0:100:1" \
-            --field="Number of loops:NUM" "0..100..1" \
-            --field="Watermark Text" "" \
-            --field="Watermark Font Size:NUM" "16" \
-            --field="Watermark Color:CLR"
+    form=(
+        yad --form --title="Single File Edit" --text="You can make changes:"
+        --button=gtk-save:2
+        --button=gtk-cancel:1
+        --field="Name" "$(getDetails "$file" filename)"
+        --field="Format:CB" "$media_formats"
+        --field="Duration:RO" "$(getDetails "$file" duration)"
+        --field="Time [%] to cut from start:SCL" "0:100:1"
+        --field="Time [%] to cut from end:SCL" "0:100:1"
+        --field="Number of loops:NUM" "0..100..1"
     )
+    if [ "$type" = "video" ]; then
+        form+=(
+            --field="Watermark Text" ""
+            --field="Watermark Font Size:NUM" "16"
+            --field="Watermark Color:CLR"
+        )
+    fi
+    dane=$("${form[@]}")
     local exit_code=$?
     case $exit_code in
     2)
         IFS='|' read -ra ADDR <<<"$dane"
         if [ "$(echo "${ADDR[3]} + ${ADDR[4]} >= 100" | bc)" -eq 1 ]; then
             yad --title="Błąd" --text="Suma czasów przycięcia nie może być większa niż 100%." --button=gtk-close:0
-            editVideo "$file" "$id"
+            editMediaFile "$file" "$id"
             return
         fi
-        processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
+        if [ "$type" = "video" ]; then
+            processed=$(processMediaFile "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
+        else
+            processed=$(processMediaFile "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "" "" "")
+        fi
         if [ -z "$processed" ]; then
             return
         fi
@@ -186,9 +209,11 @@ editVideo() {
     esac
 }
 
-processVideo() {
+processMediaFile() {
     echo "" >$FFMPEG_LOGS
     local file=$1
+    local type
+    type="${media_types["$(getDetails "$file" type)"]}"
     local current_format="${file##*.}"
     local target_format=$2
     local cut_front_percentage=$3
@@ -222,7 +247,7 @@ processVideo() {
     # Convert the video to the target format and watermark it
     local ffmpeg_pid=""
     local converted_file="${temp_file%.*}_converted.$target_format"
-    if [ -n "$watermark_text" ]; then
+    if [ -n "$watermark_text" ] && [ "$type" = "video" ]; then
         ffmpeg -i "$temp_file" \
             -vf "drawtext=text=$watermark_text: \
             x=$watermark_font_size/3: \
@@ -376,12 +401,7 @@ menu() {
                 ;;
             4)
                 local file="${mediaFiles[$id]}"
-
-                if [ "${media_types[$(getDetails "$file" type)]}" = "video" ]; then
-                    editVideo "$file" "$id"
-                else
-                    editAudio "$file" "$id"
-                fi
+                editMediaFile "$file" "$id"
                 menu
                 ;;
             6)
