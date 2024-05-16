@@ -221,48 +221,44 @@ processVideo() {
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
     # Convert the video to the target format and watermark it
-    local ffmpeg_query=""
     local converted_file="${temp_file%.*}_converted.$target_format"
-    if ! getDetails "$file" format | grep -q "$target_format"; then
-        ffmpeg_query="ffmpeg -i '$temp_file' '$converted_file' -y"
-    fi
     if [ -n "$watermark_text" ]; then
-        ffmpeg_query="ffmpeg -i '$temp_file' \\
-            -vf 'drawtext=text=$watermark_text: \\
-            x=$watermark_font_size/3: \\
-            y=h-text_h-10: \\
-            fontsize=$watermark_font_size: \\
-            fontcolor=$watermark_color' \\
-            '$converted_file' -y"
-    fi
-
-    if [ -n "$ffmpeg_query" ]; then
-        eval "$ffmpeg_query" 2>ffmpeg_progress.log &
-        ffmpeg_pid=$!
-        local conversion_complete=0
-        (
-            while kill -0 $ffmpeg_pid 2>/dev/null; do
-                current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-                hours=$(echo "$current_time" | cut -d':' -f1)
-                minutes=$(echo "$current_time" | cut -d':' -f2)
-                seconds=$(echo "$current_time" | cut -d':' -f3)
-                current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-                progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
-                echo "$progress"
-                sleep 1
-            done
-            echo " # Konwersja zakończona"
-            echo "100"
-        ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
-
-        if [ $conversion_complete -ne 1 ]; then
-            echo "Konwersja nie została zakończona pomyślnie."
-            kill "$ffmpeg_pid" 2>/dev/null
-            yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
-            return
+        ffmpeg -i "$temp_file" \
+            -vf "drawtext=text=$watermark_text: \
+            x=$watermark_font_size/3: \
+            y=h-text_h-10: \
+            fontsize=$watermark_font_size: \
+            fontcolor=$watermark_color" \
+            "$converted_file" -y \
+            2>ffmpeg_progress.log &
+    else
+        if ! getDetails "$file" format | grep -q "$target_format"; then
+            ffmpeg -i "$temp_file" "$converted_file" -y 2>ffmpeg_progress.log &
         fi
-        mv "$converted_file" "$temp_file"
     fi
+    local ffmpeg_pid=$!
+    local conversion_complete=0
+    (
+        while kill -0 $ffmpeg_pid 2>/dev/null; do
+            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+            hours=$(echo "$current_time" | cut -d':' -f1)
+            minutes=$(echo "$current_time" | cut -d':' -f2)
+            seconds=$(echo "$current_time" | cut -d':' -f3)
+            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+            progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
+            echo "$progress"
+            sleep 1
+        done
+        echo " # Konwersja zakończona"
+        echo "100"
+        conversion_complete=1
+    ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
+    if [ $conversion_complete -ne 1 ]; then
+        kill $ffmpeg_pid
+        yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+        return
+    fi
+    mv "$converted_file" "$temp_file"
 
     # Create a list file for concatenation with the video looped n times
     local list_file="${temp_file%.*}_list.txt"
