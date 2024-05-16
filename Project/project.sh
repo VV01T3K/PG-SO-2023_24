@@ -294,13 +294,13 @@ processMediaFile() {
             fontsize=$watermark_font_size: \
             fontcolor=$watermark_color" \
             -c:v libx264 -crf 18 -preset slow \
-            -c:a aac -b:a 192k \
+            -c:a aac -b:a 192k -ac 2 -ignore_unknown \
             "$converted_file" -y \
             2>ffmpeg_progress.log &
         ffmpeg_pid=$!
     else
         if ! getDetails "$file" format | grep -q "$target_format"; then
-            ffmpeg -i "$temp_file" -c:v libx264 -crf 18 -preset slow -c:a aac -b:a 192k "$converted_file" -y 2>ffmpeg_progress.log &
+            ffmpeg -i "$temp_file" -c:v libx264 -crf 18 -preset slow -c:a aac -b:a 192k -ac 2 -ignore_unknown "$converted_file" -y 2>ffmpeg_progress.log &
             ffmpeg_pid=$!
         fi
     fi
@@ -365,24 +365,12 @@ concatMediaFiles() {
     local output_file
     output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
 
-    # Step 1: Define common audio settings
-    common_audio_format="aac"
-    common_audio_bitrate="192k"
-    common_channels="2"
-
-    # Step 2: Preprocess each source file
     for file in "${files[@]}"; do
         echo "file '$file'" >>"$temp_file"
-        # Extract the filename without its extension
         filename=$(basename -- "$file")
         extension="${filename##*.}"
         filename="${filename%.*}"
-        # Create a temporary file for the processed video
-        processed_file="${temp_dir}/${filename}_processed.${extension}"
-        # Convert the audio stream of the source file
-        ffmpeg -i "$file" -c:v copy -c:a $common_audio_format -b:a $common_audio_bitrate -ac $common_channels "$processed_file"
-        # Use the processed file for duration calculation and concatenation
-        file="$processed_file"
+        file=$(processMediaFile "$file" "$target_format" 0 0 0 "" "" "")
         duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
         combined_duration=$(echo "$combined_duration + $duration" | bc)
     done
@@ -395,13 +383,18 @@ concatMediaFiles() {
               fontsize=$watermark_font_size: \
               fontcolor=$watermark_color" \
         -c:v libx264 -crf 18 -preset slow \
-        -c:a aac -b:a 192k \
+        -c:a aac -b:a 192k -ac 2 -ignore_unknown \
         "$output_file" -y 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
 
     local conversion_complete=0
     (
         while kill -0 $ffmpeg_pid 2>/dev/null; do
+            if grep -q "Conversion failed!" ffmpeg_progress.log; then
+                kill $ffmpeg_pid
+                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie. Conversion failed!" --button=gtk-close:0
+                return
+            fi
             current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
             hours=$(echo "$current_time" | cut -d':' -f1)
             minutes=$(echo "$current_time" | cut -d':' -f2)
