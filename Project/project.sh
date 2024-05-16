@@ -252,31 +252,23 @@ processVideo() {
     ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
 
     # Convert the video to the target format and watermark it
+    local ffmpeg_query
     local converted_file="${temp_file%.*}_converted.$target_format"
     if ! getDetails "$file" format | grep -q "$target_format"; then
-        if [ -n "$watermark_text" ]; then
-            ffmpeg -i "$temp_file" \
-                -vf "drawtext=text='$watermark_text':\
-                        x=$watermark_font_size/3:\
-                        y=h-text_h-10:\
-                        fontsize=$watermark_font_size:\
-                        fontcolor=$watermark_color" \
-                "$converted_file" -y >>$FFMPEG_LOGS 2>&1
-        else
-            ffmpeg -i "$temp_file" "$converted_file" -y >>$FFMPEG_LOGS 2>&1
-        fi
+        ffmpeg_query="ffmpeg -i '$temp_file' '$converted_file' -y"
+    fi
+    if [ -n "$watermark_text" ]; then
+        ffmpeg_query="ffmpeg -i '$temp_file' \\
+            -vf 'drawtext=text=$watermark_text: \\
+            x=$watermark_font_size/3: \\
+            y=h-text_h-10: \\
+            fontsize=$watermark_font_size: \\
+            fontcolor=$watermark_color' \\
+            '$converted_file' -y"
+    fi
+    if [ -n "$ffmpeg_query" ]; then
+        eval "$ffmpeg_query" >>$FFMPEG_LOGS 2>&1
         mv "$converted_file" "$temp_file"
-    else
-        if [ -n "$watermark_text" ]; then
-            ffmpeg -i "$temp_file" \
-                -vf "drawtext=text='$watermark_text':\
-                        x=$watermark_font_size/3:\
-                        y=h-text_h-10:\
-                        fontsize=$watermark_font_size:\
-                        fontcolor=$watermark_color" \
-                "$converted_file" -y >>$FFMPEG_LOGS 2>&1
-            mv "$converted_file" "$temp_file"
-        fi
     fi
 
     # Create a list file for concatenation with the video looped n times
