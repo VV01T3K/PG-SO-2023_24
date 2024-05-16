@@ -310,18 +310,18 @@ composeMenu() {
         duration=$(getDetails "$file" duration)
         extension=$(getDetails "$file" extension)
         type=$(getDetails "$file" type)
-        table+=("$file" "$type" "$filename" "$extension" "$duration" "$format")
+        table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
     done
 
     local files
     local exit_code
-    files=$(yad --list --editable --editable-cols="" \
+    all=$(yad --list --editable --editable-cols="" \
         --no-click --grid-lines=both --dclick-action= \
         --title="Lista wczytanych plików" \
         --button=Compose:2 \
         --button=gtk-close:1 \
         --width=700 --height=500 \
-        --column=FILE:HD \
+        --column=ID:HD \
         --column=TYPE:IMG \
         --column=NAME \
         --column=EXT \
@@ -331,15 +331,12 @@ composeMenu() {
         --separator=! \
         "${table[@]}")
     exit_code=$?
-
-    input=$(echo "$files!" | tr -d '[:space:]')
-    local array=()
-    IFS='!' read -r -a files <<<"$input"
+    readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
+    for id in "${selected_files[@]}"; do
+        files+=("${mediaFiles[$id]}")
+    done
 
     case $exit_code in
-    0)
-        echo "${files[@]}"
-        ;;
     1)
         rm -rf "$temp_dir"
         exit 0
