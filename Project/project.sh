@@ -173,7 +173,7 @@ editMediaFile() {
         form+=(
             --field="Watermark Text" ""
             --field="Watermark Font Size:NUM" "16"
-            --field="Watermark Color:CLR"
+            --field="Watermark Color:CLR" "#000000"
         )
     fi
     dane=$("${form[@]}")
