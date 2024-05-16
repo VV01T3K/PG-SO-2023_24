@@ -288,17 +288,19 @@ processMediaFile() {
     local converted_file="${temp_file%.*}_converted.$target_format"
     if [ -n "$watermark_text" ] && [ "$type" = "video" ]; then
         ffmpeg -i "$temp_file" \
-            -vf "drawtext=text=$watermark_text: \
+            -vf "drawtext=text='$watermark_text': \
             x=$watermark_font_size/3: \
             y=h-text_h-10: \
             fontsize=$watermark_font_size: \
             fontcolor=$watermark_color" \
+            -c:v libx264 -crf 18 -preset slow \
+            -c:a aac -b:a 192k \
             "$converted_file" -y \
             2>ffmpeg_progress.log &
         ffmpeg_pid=$!
     else
         if ! getDetails "$file" format | grep -q "$target_format"; then
-            ffmpeg -i "$temp_file" "$converted_file" -y 2>ffmpeg_progress.log &
+            ffmpeg -i "$temp_file" -c:v libx264 -crf 18 -preset slow -c:a aac -b:a 192k "$converted_file" -y 2>ffmpeg_progress.log &
             ffmpeg_pid=$!
         fi
     fi
@@ -360,20 +362,40 @@ concatMediaFiles() {
     local temp_file
     combined_duration=0
     temp_file=$(mktemp --suffix=".txt" --tmpdir="$temp_dir")
-    for file in "${files[@]}"; do
-        echo "file '$file'" >>"$temp_file"
-        duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
-        combined_duration=$(echo "$combined_duration + $duration" | bc)
-    done
     local output_file
     output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
 
+    # Step 1: Define common audio settings
+    common_audio_format="aac"
+    common_audio_bitrate="192k"
+    common_channels="2"
+
+    # Step 2: Preprocess each source file
+    for file in "${files[@]}"; do
+        echo "file '$file'" >>"$temp_file"
+        # Extract the filename without its extension
+        filename=$(basename -- "$file")
+        extension="${filename##*.}"
+        filename="${filename%.*}"
+        # Create a temporary file for the processed video
+        processed_file="${temp_dir}/${filename}_processed.${extension}"
+        # Convert the audio stream of the source file
+        ffmpeg -i "$file" -c:v copy -c:a $common_audio_format -b:a $common_audio_bitrate -ac $common_channels "$processed_file"
+        # Use the processed file for duration calculation and concatenation
+        file="$processed_file"
+        duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+        combined_duration=$(echo "$combined_duration + $duration" | bc)
+    done
+
+    # Step 3: Proceed with concatenation as before, using processed files
     ffmpeg -f concat -safe 0 -i "$temp_file" \
-        -vf "drawtext=text=$watermark_text: \
-            x=$watermark_font_size/3: \
-            y=h-text_h-10: \
-            fontsize=$watermark_font_size: \
-            fontcolor=$watermark_color" \
+        -vf "drawtext=text='$watermark_text': \
+              x=$watermark_font_size/3: \
+              y=h-text_h-10: \
+              fontsize=$watermark_font_size: \
+              fontcolor=$watermark_color" \
+        -c:v libx264 -crf 18 -preset slow \
+        -c:a aac -b:a 192k \
         "$output_file" -y 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
 
@@ -474,7 +496,7 @@ combineMenu() {
             yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         else
             local save_path
-            save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/${ADDR[0]}.${ADDR[1]}")
+            save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/combined.${processed##*.}")
             if [ -z "$save_path" ]; then
                 rm -f "$processed"
                 yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
