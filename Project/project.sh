@@ -28,8 +28,8 @@ supported_audio_formats=("mp3" "wav" "flac" "ogg")
 declare -A media_types=(
     ["video-x-generic-symbolic"]="video"
     ["video"]="video-x-generic-symbolic"
-    ["audio-x-generic-symbolic"]="audio"
-    ["audio"]="audio-x-generic-symbolic"
+    ["audio-x-generic"]="audio"
+    ["audio"]="audio-x-generic"
 )
 
 isInArray() {
@@ -301,6 +301,55 @@ processMediaFile() {
     echo "$temp_file"
 }
 
+composeMenu() {
+    local table=()
+    for id in "${selected_files[@]}"; do
+        file="${mediaFiles[$id]}"
+        filename=$(getDetails "$file" filename)
+        format=$(getDetails "$file" format)
+        duration=$(getDetails "$file" duration)
+        extension=$(getDetails "$file" extension)
+        type=$(getDetails "$file" type)
+        table+=("$file" "$type" "$filename" "$extension" "$duration" "$format")
+    done
+
+    local files
+    local exit_code
+    files=$(yad --list --editable --editable-cols="" \
+        --no-click --grid-lines=both --dclick-action= \
+        --title="Lista wczytanych plików" \
+        --button=Compose:2 \
+        --button=gtk-close:1 \
+        --width=700 --height=500 \
+        --column=FILE:HD \
+        --column=TYPE:IMG \
+        --column=NAME \
+        --column=EXT \
+        --column=Duration \
+        --column=FORMAT \
+        --print-all \
+        --separator=! \
+        "${table[@]}")
+    exit_code=$?
+
+    input=$(echo "$files!" | tr -d '[:space:]')
+    local array=()
+    IFS='!' read -r -a files <<<"$input"
+
+    case $exit_code in
+    0)
+        echo "${files[@]}"
+        ;;
+    1)
+        rm -rf "$temp_dir"
+        exit 0
+        ;;
+    2)
+        composeMenu
+        ;;
+    esac
+}
+
 menu() {
     local table=()
     local index=1
@@ -317,12 +366,12 @@ menu() {
 
     local id
     local exit_code
-    id=$(yad --list --multiple \
+    id=$(yad --list --multiple --grid-lines=both \
         --title="Lista wczytanych plików" \
         --button=gtk-add:10 \
         --button=gtk-remove:6 \
         --button=gtk-delete:8 \
-        --button=gtk-new:2 \
+        --button=Compose:2 \
         --button=gtk-edit:4 \
         --button=gtk-media-play:0 \
         --button=gtk-close:1 \
@@ -377,7 +426,8 @@ menu() {
                 exit 0
                 ;;
             2)
-                echo "COMPOSE GO ON"
+                selected_files=("${ids[@]}")
+                composeMenu
                 menu
                 ;;
             6)
