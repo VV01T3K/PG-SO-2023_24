@@ -168,6 +168,10 @@ editVideo() {
             return
         fi
         processed=$(processVideo "$file" "${ADDR[1]}" "${ADDR[3]}" "${ADDR[4]}" "${ADDR[5]}" "${ADDR[6]}" "${ADDR[7]}" "${ADDR[8]}")
+        if [ -z "$processed" ]; then
+            yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+            return
+        fi
         echo "$processed"
         local save_path
         save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/${ADDR[0]}.${ADDR[1]}")
@@ -231,8 +235,32 @@ processVideo() {
             fontcolor=$watermark_color' \\
             '$converted_file' -y"
     fi
+
     if [ -n "$ffmpeg_query" ]; then
-        eval "$ffmpeg_query" >>$FFMPEG_LOGS 2>&1
+        eval "$ffmpeg_query" 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+        local conversion_complete=0
+        (
+            while kill -0 $ffmpeg_pid 2>/dev/null; do
+                current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+                hours=$(echo "$current_time" | cut -d':' -f1)
+                minutes=$(echo "$current_time" | cut -d':' -f2)
+                seconds=$(echo "$current_time" | cut -d':' -f3)
+                current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+                progress=$(echo "scale=2; $current_seconds/$duration*100" | bc)
+                echo "$progress"
+                sleep 1
+            done
+            echo " # Konwersja zakończona"
+            echo "100"
+        ) | yad --progress --title="Postęp konwersji" --text="Trwa konwersja pliku..." --percentage=0 --auto-close && conversion_complete=1
+
+        if [ $conversion_complete -ne 1 ]; then
+            echo "Konwersja nie została zakończona pomyślnie."
+            kill "$ffmpeg_pid" 2>/dev/null
+            yad --title="Błąd konwersji" --text="Konwersja nie została zakończona pomyślnie." --button=gtk-close:0
+            return
+        fi
         mv "$converted_file" "$temp_file"
     fi
 
