@@ -260,7 +260,6 @@ editMediaFile() {
 show_progress() {
     local ffmpeg_pid=$1
     local duration=$2
-    local convert_duration
     while kill -0 "$ffmpeg_pid" 2>/dev/null; do
         current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
         hours=$(echo "$current_time" | cut -d':' -f1)
@@ -318,13 +317,14 @@ processMediaFile() {
             yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
             return 0
         fi
+    else
+        cp "$file" "$temp_file"
     fi
 
     # Convert the video to the target format and watermark it
     ffmpeg_pid=""
     local converted_file="${temp_file%.*}_converted.$target_format"
     if [ -n "$watermark_text" ] && [ "$type" = "video" ]; then
-        echo "test2" >>$LOGS
         ffmpeg -i "$temp_file" \
             -vf "drawtext=text='$watermark_text': \
             x=$watermark_font_size/3: \
@@ -612,7 +612,6 @@ combineMenu() {
 
     if [ "$video_count" -gt 1 ] && [ "$audio_count" -gt 1 ]; then
         yad --title="Błąd" --text="Nie można łączyć więcej niż jednego pliku wideo z jednym plikiem audio." --button=gtk-close:0
-        menu
         return
     fi
 
@@ -664,7 +663,7 @@ combineMenu() {
 
     case $exit_code in
     1)
-        menu
+        return
         ;;
     2)
         openCombineForm "$single_video" "$mode"
@@ -686,8 +685,7 @@ combineMenu() {
                 yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
             fi
         fi
-
-        menu
+        return
         ;;
     4)
         processed=$(concatMediaFiles "${files[@]}")
@@ -708,7 +706,7 @@ combineMenu() {
                 yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
             fi
         fi
-        menu
+        return
         ;;
     6)
         processed=$(mergeAudio "${files[@]}")
@@ -729,7 +727,7 @@ combineMenu() {
                 yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
             fi
         fi
-        menu
+        return
         ;;
     esac
 }
