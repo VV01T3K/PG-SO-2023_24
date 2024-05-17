@@ -1,18 +1,16 @@
 #!/bin/bash
-# Author           : Wojciech Siwiec s197815....
+# Author           : Wojciech Siwiec s197815
 # Created On       : 13.05.2024
-# Last Modified By : Wojciech Siwiec s197815....
-# Last Modified On : 13.05.2024
-# Version          : 0.5
+# Last Modified By : Wojciech Siwiec s197815
+# Last Modified On : 17.05.2024
+# Version          : 0.00.01v pre-alpha-nightly-unstable
 #
+# Name             : "Convedit"
 # Description      :
 # Opis
 #
 # Licensed under the MIT License (see LICENSE.txt file in the project root for more details)
 
-# * https://yad-guide.ingk.se/
-
-# nie może być chyba set -e bo yad się psuje
 set -uf -o pipefail
 LOGS="out.log"
 FFMPEG_LOGS="ffmpeg.log"
@@ -225,6 +223,7 @@ openCombineForm() {
 editMediaFile() {
     local file=$1
     local id=$2
+    local type="${media_types["$(getDetails "$file" type)"]}"
     openForm "$file"
     case $exit_code_global in
     2)
@@ -246,14 +245,34 @@ editMediaFile() {
         save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/${ADDR[0]}.${ADDR[1]}")
         if [ -z "$save_path" ]; then
             rm -f "$processed"
-            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         else
+            if [ ! -f "$save_path" ]; then
+                mediaFiles+=("$save_path")
+            fi
             mv "$processed" "$save_path"
-            mediaFiles+=("$save_path")
             yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
         fi
         ;;
     esac
+}
+
+show_progress() {
+    local ffmpeg_pid=$1
+    local duration=$2
+    local convert_duration
+    while kill -0 "$ffmpeg_pid" 2>/dev/null; do
+        current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+        hours=$(echo "$current_time" | cut -d':' -f1)
+        minutes=$(echo "$current_time" | cut -d':' -f2)
+        seconds=$(echo "$current_time" | cut -d':' -f3)
+        current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+        progress=$(echo "scale=2; $current_seconds/($duration)*100" | bc)
+        echo "$progress"
+        sleep 1
+    done
+    echo " # Przetwarzanie zakończone"
+    echo "100"
 }
 
 processMediaFile() {
@@ -288,13 +307,24 @@ processMediaFile() {
     cut_back_seconds=$(echo "$duration * $cut_back_percentage / 100" | bc -l)
     cut_duration=$(echo "$duration - $cut_front_seconds - $cut_back_seconds" | bc -l)
 
-    # Use the calculated cut times to trim the video
-    ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c copy "$temp_file" -y >>$FFMPEG_LOGS 2>&1
+    local ffmpeg_pid=""
+    if [ "$(echo "$cut_front_percentage + $cut_back_percentage > 0" | bc)" -eq 1 ]; then
+        ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c:v libx264 -c:a aac "$temp_file" -y 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+        local conversion_complete=0
+        show_progress "$ffmpeg_pid" "$cut_duration" | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+        if [ $conversion_complete -ne 1 ]; then
+            kill $ffmpeg_pid
+            yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            return 0
+        fi
+    fi
 
     # Convert the video to the target format and watermark it
-    local ffmpeg_pid=""
+    ffmpeg_pid=""
     local converted_file="${temp_file%.*}_converted.$target_format"
     if [ -n "$watermark_text" ] && [ "$type" = "video" ]; then
+        echo "test2" >>$LOGS
         ffmpeg -i "$temp_file" \
             -vf "drawtext=text='$watermark_text': \
             x=$watermark_font_size/3: \
@@ -311,23 +341,10 @@ processMediaFile() {
         fi
     fi
     if [ -n "$ffmpeg_pid" ]; then
+        local convert_duration
+        convert_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$temp_file")
         local conversion_complete=0
-        (
-            local convert_duration
-            convert_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$temp_file")
-            while kill -0 $ffmpeg_pid 2>/dev/null; do
-                current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-                hours=$(echo "$current_time" | cut -d':' -f1)
-                minutes=$(echo "$current_time" | cut -d':' -f2)
-                seconds=$(echo "$current_time" | cut -d':' -f3)
-                current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-                progress=$(echo "scale=2; $current_seconds/($convert_duration)*100" | bc)
-                echo "$progress"
-                sleep 1
-            done
-            echo " # Konwersja zakończona"
-            echo "100"
-        ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+        show_progress "$ffmpeg_pid" "$convert_duration" | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
         if [ $conversion_complete -ne 1 ]; then
             kill $ffmpeg_pid
             yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
@@ -412,7 +429,7 @@ mergeAudio() {
             echo "$progress"
             sleep 1
         done
-        echo " # Konwersja zakończona"
+        echo " # Przetwarzanie zakończone"
         echo "100"
     ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
     if [ $conversion_complete -ne 1 ]; then
@@ -486,7 +503,7 @@ concatMediaFiles() {
             echo "$progress"
             sleep 1
         done
-        echo " # Konwersja zakończona"
+        echo " # Przetwarzanie zakończone"
         echo "100"
     ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
     if [ $conversion_complete -ne 1 ]; then
@@ -551,7 +568,7 @@ mergeMixedMediaFiles() {
             echo "$progress"
             sleep 1
         done
-        echo " # Konwersja zakończona"
+        echo " # Przetwarzanie zakończone"
         echo "100"
     ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
     if [ $conversion_complete -ne 1 ]; then
@@ -654,36 +671,40 @@ combineMenu() {
         processed=$(mergeMixedMediaFiles "$single_video" "$single_audio")
         if [ -z "$processed" ]; then
             rm -f "$processed"
-            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         else
             local save_path
             save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/combined.${processed##*.}")
             if [ -z "$save_path" ]; then
                 rm -f "$processed"
-                yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
             else
+                if [ ! -f "$save_path" ]; then
+                    mediaFiles+=("$save_path")
+                fi
                 mv "$processed" "$save_path"
-                mediaFiles+=("$save_path")
                 yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
             fi
         fi
-        menu
+
         menu
         ;;
     4)
         processed=$(concatMediaFiles "${files[@]}")
         if [ -z "$processed" ]; then
             rm -f "$processed"
-            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         else
             local save_path
             save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/combined.${processed##*.}")
             if [ -z "$save_path" ]; then
                 rm -f "$processed"
-                yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
             else
+                if [ ! -f "$save_path" ]; then
+                    mediaFiles+=("$save_path")
+                fi
                 mv "$processed" "$save_path"
-                mediaFiles+=("$save_path")
                 yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
             fi
         fi
@@ -693,16 +714,18 @@ combineMenu() {
         processed=$(mergeAudio "${files[@]}")
         if [ -z "$processed" ]; then
             rm -f "$processed"
-            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         else
             local save_path
             save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/combined.${processed##*.}")
             if [ -z "$save_path" ]; then
                 rm -f "$processed"
-                yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
             else
+                if [ ! -f "$save_path" ]; then
+                    mediaFiles+=("$save_path")
+                fi
                 mv "$processed" "$save_path"
-                mediaFiles+=("$save_path")
                 yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
             fi
         fi
@@ -728,14 +751,14 @@ menu() {
     local id
     local exit_code
     id=$(yad --list --multiple --grid-lines=both \
-        --title="Lista wczytanych plików" \
+        --title="Convedit" \
         --button=gtk-add:10 \
         --button=gtk-remove:6 \
         --button=gtk-delete:8 \
         --button=Combine:2 \
         --button=gtk-edit:4 \
         --button=gtk-media-play:0 \
-        --button=gtk-close:1 \
+        --button=gtk-help:14 \
         --width=700 --height=500 \
         --column=ID:HD \
         --column=TYPE:IMG \
@@ -760,6 +783,10 @@ menu() {
             addNewFiles
             menu
             ;;
+        14)
+            about
+            menu
+            ;;
         0 | 2 | 4 | 6 | 8)
             yad --title="Błąd" --text="Nie wybrano plików." --button=gtk-close:0
             menu
@@ -778,7 +805,7 @@ menu() {
             done
 
             case $exit_code in
-            0 | 4 | 8)
+            0 | 4)
                 yad --title="Błąd" --text="Wybrano wiecej niż jeden plik." --button=gtk-close:0
                 menu
                 ;;
@@ -808,14 +835,38 @@ menu() {
                 mediaFiles=("${newMediaFiles[@]}")
                 menu
                 ;;
+            8)
+                if yad --title="Potwierdź usunięcie" --text="Czy na pewno chcesz usunąć wiele plików?" --button=gtk-yes:0 --button=gtk-no:1; then
+                    declare -a newMediaFiles=()
+                    for ((i = 0; i < ${#mediaFiles[@]}; i++)); do
+                        matchFound=false
+                        for id in "${ids[@]}"; do
+                            if [[ $id -eq $i ]]; then
+                                rm -f "${mediaFiles[$id]}"
+                                matchFound=true
+                                break
+                            fi
+                        done
+                        if [[ $matchFound == false ]]; then
+                            newMediaFiles+=("${mediaFiles[i]}")
+                        fi
+                    done
+                    mediaFiles=("${newMediaFiles[@]}")
+                fi
+                menu
+                ;;
             10)
                 addNewFiles
+                menu
+                ;;
+            14)
+                about
                 menu
                 ;;
             esac
         else
             id=$((id - 1))
-            if [ $exit_code -ne 1 ] && [ $exit_code -ne 10 ] && [ $exit_code -ne 252 ]; then
+            if [ $exit_code -ne 1 ] && [ $exit_code -ne 10 ] && [ $exit_code -ne 252 ] && [ $exit_code -ne 14 ]; then
                 if [ $id -eq -1 ]; then
                     yad --title="Błąd" --text="Nie wybrano pliku." --button=gtk-close:0
                     menu
@@ -855,18 +906,18 @@ menu() {
                 addNewFiles
                 menu
                 ;;
-
+            14)
+                about
+                menu
+                ;;
             esac
         fi
     fi
 
 }
 
-# about() {
-#     yad --width=700 --height=500 --title="O programie" --text="Program do konwersji plików wideo" --button=gtk-new:0
-#     menu
-# }
-
-# about
+about() {
+    yad --width=700 --height=500 --title="O programie" --text="Program do przetwarzania plików wideo" --button=gtk-new:0
+}
 
 menu
