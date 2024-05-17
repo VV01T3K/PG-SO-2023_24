@@ -311,7 +311,12 @@ processMediaFile() {
         ffmpeg -i "$file" -ss "$cut_front_seconds" -t "$cut_duration" -c:v libx264 -c:a aac "$temp_file" -y 2>ffmpeg_progress.log &
         ffmpeg_pid=$!
         local conversion_complete=0
-        show_progress "$ffmpeg_pid" "$cut_duration" | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+        show_progress "$ffmpeg_pid" "$cut_duration" |
+            yad --progress \
+                --title="Postęp przetwarzania" \
+                --text="Trwa przetwarzanie pliku..." \
+                --percentage=0 \
+                --auto-close && conversion_complete=1
         if [ $conversion_complete -ne 1 ]; then
             kill $ffmpeg_pid
             yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
@@ -344,7 +349,12 @@ processMediaFile() {
         local convert_duration
         convert_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$temp_file")
         local conversion_complete=0
-        show_progress "$ffmpeg_pid" "$convert_duration" | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+        show_progress "$ffmpeg_pid" "$convert_duration" |
+            yad --progress \
+                --title="Postęp przetwarzania" \
+                --text="Trwa przetwarzanie pliku..." \
+                --percentage=0 \
+                --auto-close && conversion_complete=1
         if [ $conversion_complete -ne 1 ]; then
             kill $ffmpeg_pid
             yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
@@ -391,7 +401,6 @@ mergeAudio() {
         converted_files+=("$file")
     done
 
-    # Initialize the filter_complex part of the command
     filter_complex=""
 
     # Loop through each file in the converted_files array to construct the filter_complex part
@@ -413,25 +422,13 @@ mergeAudio() {
     ffmpeg_pid=$!
 
     local conversion_complete=0
-    (
-        while kill -0 $ffmpeg_pid 2>/dev/null; do
-            if grep -q "Conversion failed!" ffmpeg_progress.log; then
-                kill $ffmpeg_pid
-                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie. Conversion failed!" --button=gtk-close:0
-                return
-            fi
-            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-            hours=$(echo "$current_time" | cut -d':' -f1)
-            minutes=$(echo "$current_time" | cut -d':' -f2)
-            seconds=$(echo "$current_time" | cut -d':' -f3)
-            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-            progress=$(echo "scale=2; $current_seconds/($max_duration)*100" | bc)
-            echo "$progress"
-            sleep 1
-        done
-        echo " # Przetwarzanie zakończone"
-        echo "100"
-    ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+    show_progress "$ffmpeg_pid" "$max_duration" |
+        yad --progress \
+            --title="Postęp przetwarzania" \
+            --text="Trwa przetwarzanie pliku..." \
+            --percentage=0 \
+            --auto-close &&
+        conversion_complete=1
     if [ $conversion_complete -ne 1 ]; then
         kill $ffmpeg_pid
         yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
@@ -471,7 +468,6 @@ concatMediaFiles() {
         combined_duration=$(echo "$combined_duration + $duration" | bc)
     done
 
-    # Step 3: Proceed with concatenation as before, using processed files
     if [[ "${media_types["$(getDetails "${files[0]}" type)"]}" == "video" ]]; then
         ffmpeg -f concat -safe 0 -i "$temp_file" \
             -vf "drawtext=text='$watermark_text': \
@@ -487,25 +483,12 @@ concatMediaFiles() {
     fi
 
     local conversion_complete=0
-    (
-        while kill -0 $ffmpeg_pid 2>/dev/null; do
-            if grep -q "Conversion failed!" ffmpeg_progress.log; then
-                kill $ffmpeg_pid
-                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie. Conversion failed!" --button=gtk-close:0
-                return
-            fi
-            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-            hours=$(echo "$current_time" | cut -d':' -f1)
-            minutes=$(echo "$current_time" | cut -d':' -f2)
-            seconds=$(echo "$current_time" | cut -d':' -f3)
-            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-            progress=$(echo "scale=2; $current_seconds/($combined_duration)*100" | bc)
-            echo "$progress"
-            sleep 1
-        done
-        echo " # Przetwarzanie zakończone"
-        echo "100"
-    ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+    show_progress "$ffmpeg_pid" "$combined_duration" |
+        yad --progress \
+            --title="Postęp przetwarzania" \
+            --text="Trwa przetwarzanie pliku..." \
+            --percentage=0 \
+            --auto-close && conversion_complete=1
     if [ $conversion_complete -ne 1 ]; then
         kill $ffmpeg_pid
         yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
@@ -541,36 +524,57 @@ mergeMixedMediaFiles() {
     local output_file
     output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
     if [ "$mute_original" = "TRUE" ]; then
-        ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg -i "$video" \
+            -itsoffset "$new_audio_start_seconds" \
+            -i "$audio" \
+            -c:v copy \
+            -c:a aac \
+            -map 0:v:0 \
+            -map 1:a:0 \
+            -strict experimental \
+            -t "$video_duration" \
+            "$output_file" \
+            -y 2>ffmpeg_progress.log &
         ffmpeg_pid=$!
     elif [ "$replace_audio" = "TRUE" ]; then
-        ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a]volume=enable='between(t,${new_audio_start_seconds},${new_audio_start_seconds}+${audio_duration})':volume=0[a2];[a2][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg -i "$video" \
+            -itsoffset "$new_audio_start_seconds" \
+            -i "$audio" \
+            -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a]volume=enable='between(t,${new_audio_start_seconds},${new_audio_start_seconds}+${audio_duration})':volume=0[a2];[a2][a1]amix=inputs=2:duration=longest[a]" \
+            -map 0:v:0 \
+            -map "[a]" \
+            -c:v copy \
+            -c:a aac \
+            -b:a 128k \
+            -strict experimental \
+            -t "$video_duration" \
+            "$output_file" \
+            -y 2>ffmpeg_progress.log &
         ffmpeg_pid=$!
     else
-        ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg -i "$video" \
+            -itsoffset "$new_audio_start_seconds" \
+            -i "$audio" \
+            -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a][a1]amix=inputs=2:duration=longest[a]" \
+            -map 0:v:0 \
+            -map "[a]" \
+            -c:v copy \
+            -c:a aac \
+            -b:a 128k \
+            -strict experimental \
+            -t "$video_duration" \
+            "$output_file" \
+            -y 2>ffmpeg_progress.log &
         ffmpeg_pid=$!
     fi
 
     local conversion_complete=0
-    (
-        while kill -0 $ffmpeg_pid 2>/dev/null; do
-            if grep -q "Conversion failed!" ffmpeg_progress.log; then
-                kill $ffmpeg_pid
-                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie. Conversion failed!" --button=gtk-close:0
-                return
-            fi
-            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
-            hours=$(echo "$current_time" | cut -d':' -f1)
-            minutes=$(echo "$current_time" | cut -d':' -f2)
-            seconds=$(echo "$current_time" | cut -d':' -f3)
-            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
-            progress=$(echo "scale=2; $current_seconds/($video_duration)*100" | bc)
-            echo "$progress"
-            sleep 1
-        done
-        echo " # Przetwarzanie zakończone"
-        echo "100"
-    ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+    show_progress "$ffmpeg_pid" "$video_duration" |
+        yad --progress \
+            --title="Postęp przetwarzania" \
+            --text="Trwa przetwarzanie pliku..." \
+            --percentage=0 \
+            --auto-close && conversion_complete=1
     if [ $conversion_complete -ne 1 ]; then
         kill $ffmpeg_pid
         yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
