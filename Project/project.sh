@@ -4,16 +4,34 @@
 # Last Modified By : Wojciech Siwiec s197815
 # Last Modified On : 17.05.2024
 # Version          : 0.00.01v pre-alpha-nightly-unstable
-#
+# --------------------------------------------------------------
 # Name             : "Convedit"
-# Description      :
-# Opis
-#
-# Licensed under the MIT License (see LICENSE.txt file in the project root for more details)
+# Description      : Program do edycji plików multimedialnych.
+# --------------------------------------------------------------
+# Program pozwala na wybranie wczytanie
+# na listę plików wideo i audio.
+# Z listy można wybrać plik, który chcemy
+# odtworzyć lub poddać obróbce.
+# Wybranie kilku plików i wybranie opcji "Combine"
+# pozwala na połączenie kilku plików w jeden.
+# Można zmieniać kolejność wybranych plików do
+# połączenia poprzez przeciąganie na liście.
+# Pliki wyjściowe można zapisać w formacie
+# mp4, avi, mkv, webm dla wideo oraz mp3, wav, flac, ogg dla audio.
+# Czasami niektóre pliki nie będą działać poprawnie,
+# wtedy należy spróbować zmienić format wyjściowy.
+# Program nie widzi wszystich możliwych błędów
+# przetwarzania na co należy uważać przy zaawansowanej obróbce.
+# --------------------------------------------------------------
+# Licensed under the MIT License
+# (see LICENSE.txt file in the project root for more details)
 
 set -uf -o pipefail
 LOGS="out.log"
 FFMPEG_LOGS="ffmpeg.log"
+HELP="help.md"
+INFO="info.md"
+VERSION="version.md"
 echo "" >$LOGS
 echo "" >$FFMPEG_LOGS
 exec 2>>$LOGS
@@ -22,7 +40,7 @@ temp_dir=$(mktemp -d)
 exit_code_global=""
 dane=""
 declare -a mediaFiles
-supported_video_formats=("mp4" "mov" "avi" "webm")
+supported_video_formats=("mp4" "mkv" "avi" "webm")
 supported_audio_formats=("mp3" "wav" "flac" "ogg")
 declare -A media_types=(
     ["video-x-generic-symbolic"]="video"
@@ -30,6 +48,11 @@ declare -A media_types=(
     ["audio-x-generic"]="audio"
     ["audio"]="audio-x-generic"
 )
+
+exit_procedure() {
+    rm -rf "$temp_dir"
+    exit "$1"
+}
 
 isInArray() {
     local element=$1
@@ -43,21 +66,25 @@ isInArray() {
 }
 
 OPTSTRING=":hv"
+terminal_used=0
 while getopts ${OPTSTRING} opt; do
+    terminal_used=1
     case ${opt} in
     h)
-        echo "help"
+        cat "$HELP"
         ;;
     v)
-        echo "version"
+        cat "$VERSION"
         ;;
     ?)
         echo "Invalid option: -${OPTARG}."
-        rm -rf "$temp_dir"
-        exit 1
+        exit_procedure 1
         ;;
     esac
 done
+if [ "$terminal_used" -eq 1 ]; then
+    exit_procedure 0
+fi
 
 addNewFiles() {
     selected_files=$(yad --title="Wybierz pliki" --file-selection --multiple \
@@ -635,7 +662,7 @@ combineMenu() {
     commd=(
         yad --list --editable --editable-cols="" --no-selection
         --no-click --grid-lines=both --dclick-action=
-        --title="Lista wczytanych plików"
+        --title="Combine Files - list of selected files"
         --width=700 --height=500
         --column=ID:HD
         --column=TYPE:IMG
@@ -657,7 +684,7 @@ combineMenu() {
             commd+=(--button=Merge:6)
         fi
     fi
-    commd+=(--button=gtk-close:1)
+    commd+=(--button=gtk-cancel:1)
     all=$("${commd[@]}")
     exit_code=$?
     readarray -t selected_files < <(echo "$all" | grep -o '[0-9]\+!!' | cut -d'!' -f1)
@@ -760,7 +787,7 @@ menu() {
         --button=Combine:2 \
         --button=gtk-edit:4 \
         --button=gtk-media-play:0 \
-        --button=gtk-help:14 \
+        --button=gtk-about:14 \
         --width=700 --height=500 \
         --column=ID:HD \
         --column=TYPE:IMG \
@@ -778,8 +805,7 @@ menu() {
     if [ $exit_code -eq 1 ] && [ $exit_code -eq 252 ]; then
         case $exit_code in
         1)
-            rm -rf "$temp_dir"
-            exit 0
+            exit_procedure 0
             ;;
         10)
             addNewFiles
@@ -812,8 +838,7 @@ menu() {
                 menu
                 ;;
             1)
-                rm -rf "$temp_dir"
-                exit 0
+                exit_procedure 0
                 ;;
             2)
                 selected_files=("${ids[@]}")
@@ -881,8 +906,7 @@ menu() {
                 menu
                 ;;
             1)
-                rm -rf "$temp_dir"
-                exit 0
+                exit_procedure 0
                 ;;
             2)
                 yad --title="Błąd" --text="Wybrano za mało plików." --button=gtk-close:0
@@ -919,7 +943,22 @@ menu() {
 }
 
 about() {
-    yad --width=700 --height=500 --title="O programie" --text="Program do przetwarzania plików wideo" --button=gtk-new:0
+    yad --title="O programie" --text="Program do edycji plików multimedialnych." --button=gtk-help:1 --button=gtk-info:2 --button=gtk-close:0
+    case $? in
+    3)
+        return
+        ;;
+    1)
+        yad --title="Pomoc" --text-info --scroll --filename="$HELP" --width=730 --height=400 --button=gtk-close:0
+        about
+        ;;
+    2)
+        temp_file=$(mktemp)
+        cat $VERSION $INFO >"$temp_file"
+        yad --title="Informacje" --text-info --scroll --filename="$temp_file" --width=600 --height=400 --button=gtk-close:0
+        rm "$temp_file"
+        about
+        ;;
+    esac
 }
-
 menu
