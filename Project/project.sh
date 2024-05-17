@@ -179,6 +179,7 @@ openForm() {
 }
 openCombineForm() {
     local file=$1
+    local mode=$2
     local type="${media_types["$(getDetails "$file" type)"]}"
     local processed
     local supported_media_formats=()
@@ -201,6 +202,15 @@ openCombineForm() {
         --button=gtk-cancel:1
         --field="Format:CB" "$media_formats"
     )
+    if [ -n "$mode" ]; then
+        if [ "$mode" = "mixed" ]; then
+            form+=(
+                --field="Mute original audio:CHK" ""
+                --field="Loop new audio to match video end:CHK" ""
+                --field="New audio start time [%]:SCL" ""
+            )
+        fi
+    fi
     if [ "$type" = "video" ]; then
         form+=(
             --field="Watermark Text" ""
@@ -208,6 +218,7 @@ openCombineForm() {
             --field="Watermark Color:CLR" "#000000"
         )
     fi
+    echo "${form[@]}"
     dane=$("${form[@]}")
     exit_code_global=$?
 }
@@ -338,9 +349,9 @@ processMediaFile() {
     echo "$temp_file"
 }
 
-overlayMediaFiles() {
+mergeAudio() {
     local files=("$@")
-    openCombineForm "${files[0]}"
+    openCombineForm "${files[0]}" ""
     case $exit_code_global in
     1)
         return
@@ -414,7 +425,7 @@ overlayMediaFiles() {
 
 concatMediaFiles() {
     local files=("$@")
-    openCombineForm "${files[0]}"
+    openCombineForm "${files[0]}" ""
     case $exit_code_global in
     1)
         return
@@ -489,20 +500,17 @@ combineMenu() {
     local table=()
     local video_count=0
     local audio_count=0
+    local single_video
+    local single_audio
     for id in "${selected_files[@]}"; do
-        file="${mediaFiles[$id]}"
-        filename=$(getDetails "$file" filename)
-        format=$(getDetails "$file" format)
-        duration=$(getDetails "$file" duration)
-        extension=$(getDetails "$file" extension)
-        type=$(getDetails "$file" type)
         mediaTypeKey=$(getDetails "${mediaFiles[$id]}" type)
         if [[ "${media_types[$mediaTypeKey]}" == "video" ]]; then
             video_count=$((video_count + 1))
+            single_video="${mediaFiles[$id]}"
         else
             audio_count=$((audio_count + 1))
+            single_audio="${mediaFiles[$id]}"
         fi
-        table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
     done
     local mode="mixed"
     if [ "$video_count" -eq 0 ]; then
@@ -511,11 +519,28 @@ combineMenu() {
     if [ "$audio_count" -eq 0 ]; then
         mode="video"
     fi
+
+    if [ "$video_count" -gt 1 ] && [ "$audio_count" -gt 1 ]; then
+        yad --title="Błąd" --text="Nie można łączyć więcej niż jednego pliku wideo z jednym plikiem audio." --button=gtk-close:0
+        menu
+        return
+    fi
+
+    for id in "${selected_files[@]}"; do
+        file="${mediaFiles[$id]}"
+        filename=$(getDetails "$file" filename)
+        format=$(getDetails "$file" format)
+        duration=$(getDetails "$file" duration)
+        extension=$(getDetails "$file" extension)
+        type=$(getDetails "$file" type)
+        table+=("$id" "$type" "$filename" "$extension" "$duration" "$format")
+    done
+
     local files
     local exit_code
     local processed
     commd=(
-        yad --list --editable --editable-cols=""
+        yad --list --editable --editable-cols="" --no-selection
         --no-click --grid-lines=both --dclick-action=
         --title="Lista wczytanych plików"
         --width=700 --height=500
@@ -530,11 +555,14 @@ combineMenu() {
         "${table[@]}"
     )
     if [ "$mode" = "mixed" ]; then
-        commd+=(--button=Compose:2)
+        commd+=(
+            # --button=Switch:2
+            --button=Merge:2
+        )
     else
         commd+=(--button=Concat:4)
         if [ "$mode" = "audio" ]; then
-            commd+=(--button=Overlap:6)
+            commd+=(--button=Merge:6)
         fi
     fi
     commd+=(--button=gtk-close:1)
@@ -547,6 +575,10 @@ combineMenu() {
 
     case $exit_code in
     1)
+        menu
+        ;;
+    2)
+        openCombineForm "$single_video" "$mode"
         menu
         ;;
     4)
@@ -569,7 +601,7 @@ combineMenu() {
         menu
         ;;
     6)
-        processed=$(overlayMediaFiles "${files[@]}")
+        processed=$(mergeAudio "${files[@]}")
         if [ -z "$processed" ]; then
             rm -f "$processed"
             yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
