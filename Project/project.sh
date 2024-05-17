@@ -207,7 +207,6 @@ openCombineForm() {
             form+=(
                 --field="Mute whole original audio:CHK" ""
                 --field="Replace part of original audio:CHK" ""
-                --field="Loop new audio to match video end:CHK" ""
                 --field="New audio start time [%]:SCL" ""
             )
         fi
@@ -501,8 +500,8 @@ concatMediaFiles() {
 mergeMixedMediaFiles() {
     local video=$1
     local audio=$2
-    video_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 video.mp4)
-    audio_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 audio.mp3)
+    video_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$video")
+    # audio_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 audio.mp3)
     case $exit_code_global in
     1)
         combineMenu "$video" "$audio"
@@ -511,23 +510,25 @@ mergeMixedMediaFiles() {
     2)
         IFS='|' read -ra ADDR <<<"$dane"
         local target_format=${ADDR[0]}
-        if [[ "${media_types["$(getDetails "${files[0]}" type)"]}" == "video" ]]; then
-            local mute_original=${ADDR[1]}
-            local replace_audio=${ADDR[2]}
-            local loop_new=${ADDR[3]}
-            local new_audio_start_percentage=${ADDR[4]}
-            local watermark_text=${ADDR[5]}
-            local watermark_font_size=${ADDR[6]}
-            local watermark_color=${ADDR[7]}
-            local new_audio_start_time
-            new_audio_start_time=$(bc <<<"$video_duration * $new_audio_start_percentage / 100")
-        fi
+        local mute_original=${ADDR[1]}
+        local replace_audio=${ADDR[2]}
+        local new_audio_start_percentage=${ADDR[3]}
+        local watermark_text=${ADDR[4]}
+        local watermark_font_size=${ADDR[5]}
+        local watermark_color=${ADDR[6]}
+        local new_audio_start_seconds
+        new_audio_start_seconds=$(printf "%.0f" "$(echo "$video_duration * $new_audio_start_percentage / 100" | bc -l)")
         ;;
     esac
 
     local output_file
     output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
-    ffmpeg -i "$video" -i "$audio" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict experimental "$output_file" -y 2>ffmpeg_progress.log &
+    # mute original audio
+    # ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+    # both audios with offset
+    # ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+    # keep original audio but when new audio starts replace it
+    ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a]volume=enable='between(t,${new_audio_start_seconds},${new_audio_start_seconds}+$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$audio"))':volume=0[a2];[a2][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
     ffmpeg_pid=$!
 
     local conversion_complete=0
