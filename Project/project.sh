@@ -205,7 +205,8 @@ openCombineForm() {
     if [ -n "$mode" ]; then
         if [ "$mode" = "mixed" ]; then
             form+=(
-                --field="Mute original audio:CHK" ""
+                --field="Mute whole original audio:CHK" ""
+                --field="Replace part of original audio:CHK" ""
                 --field="Loop new audio to match video end:CHK" ""
                 --field="New audio start time [%]:SCL" ""
             )
@@ -218,7 +219,6 @@ openCombineForm() {
             --field="Watermark Color:CLR" "#000000"
         )
     fi
-    echo "${form[@]}"
     dane=$("${form[@]}")
     exit_code_global=$?
 }
@@ -354,6 +354,7 @@ mergeAudio() {
     openCombineForm "${files[0]}" ""
     case $exit_code_global in
     1)
+        combineMenu "${files[@]}"
         return
         ;;
     2)
@@ -428,6 +429,7 @@ concatMediaFiles() {
     openCombineForm "${files[0]}" ""
     case $exit_code_global in
     1)
+        combineMenu "${files[@]}"
         return
         ;;
     2)
@@ -482,6 +484,66 @@ concatMediaFiles() {
             seconds=$(echo "$current_time" | cut -d':' -f3)
             current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
             progress=$(echo "scale=2; $current_seconds/($combined_duration)*100" | bc)
+            echo "$progress"
+            sleep 1
+        done
+        echo " # Konwersja zakończona"
+        echo "100"
+    ) | yad --progress --title="Postęp przetwarzania" --text="Trwa przetwarzanie pliku..." --percentage=0 --auto-close && conversion_complete=1
+    if [ $conversion_complete -ne 1 ]; then
+        kill $ffmpeg_pid
+        yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+        return
+    fi
+    echo "$output_file"
+}
+
+mergeMixedMediaFiles() {
+    local video=$1
+    local audio=$2
+    video_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 video.mp4)
+    audio_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 audio.mp3)
+    case $exit_code_global in
+    1)
+        combineMenu "$video" "$audio"
+        return
+        ;;
+    2)
+        IFS='|' read -ra ADDR <<<"$dane"
+        local target_format=${ADDR[0]}
+        if [[ "${media_types["$(getDetails "${files[0]}" type)"]}" == "video" ]]; then
+            local mute_original=${ADDR[1]}
+            local replace_audio=${ADDR[2]}
+            local loop_new=${ADDR[3]}
+            local new_audio_start_percentage=${ADDR[4]}
+            local watermark_text=${ADDR[5]}
+            local watermark_font_size=${ADDR[6]}
+            local watermark_color=${ADDR[7]}
+            local new_audio_start_time
+            new_audio_start_time=$(bc <<<"$video_duration * $new_audio_start_percentage / 100")
+        fi
+        ;;
+    esac
+
+    local output_file
+    output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
+    ffmpeg -i "$video" -i "$audio" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict experimental "$output_file" -y 2>ffmpeg_progress.log &
+    ffmpeg_pid=$!
+
+    local conversion_complete=0
+    (
+        while kill -0 $ffmpeg_pid 2>/dev/null; do
+            if grep -q "Conversion failed!" ffmpeg_progress.log; then
+                kill $ffmpeg_pid
+                yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie. Conversion failed!" --button=gtk-close:0
+                return
+            fi
+            current_time=$(grep -oP 'time=\K[\d:.]*' ffmpeg_progress.log | tail -1)
+            hours=$(echo "$current_time" | cut -d':' -f1)
+            minutes=$(echo "$current_time" | cut -d':' -f2)
+            seconds=$(echo "$current_time" | cut -d':' -f3)
+            current_seconds=$(echo "$hours*3600 + $minutes*60 + $seconds" | bc)
+            progress=$(echo "scale=2; $current_seconds/($video_duration)*100" | bc)
             echo "$progress"
             sleep 1
         done
@@ -556,7 +618,6 @@ combineMenu() {
     )
     if [ "$mode" = "mixed" ]; then
         commd+=(
-            # --button=Switch:2
             --button=Merge:2
         )
     else
@@ -579,6 +640,23 @@ combineMenu() {
         ;;
     2)
         openCombineForm "$single_video" "$mode"
+        processed=$(mergeMixedMediaFiles "$single_video" "$single_audio")
+        if [ -z "$processed" ]; then
+            rm -f "$processed"
+            yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+        else
+            local save_path
+            save_path=$(yad --save --file="$file" --filename="$(dirname "$file")/combined.${processed##*.}")
+            if [ -z "$save_path" ]; then
+                rm -f "$processed"
+                yad --title="Błąd konwersji" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
+            else
+                mv "$processed" "$save_path"
+                mediaFiles+=("$save_path")
+                yad --title="Przetwarzanie zakończone" --text="Plik został zapisany" --button=gtk-ok:0
+            fi
+        fi
+        menu
         menu
         ;;
     4)
