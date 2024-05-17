@@ -29,9 +29,9 @@
 set -uf -o pipefail
 LOGS="out.log"
 FFMPEG_LOGS="ffmpeg.log"
-HELP="help.md"
-INFO="info.md"
-VERSION="version.md"
+HELP="help.txt"
+INFO="info.txt"
+VERSION="version.txt"
 echo "" >$LOGS
 echo "" >$FFMPEG_LOGS
 exec 2>>$LOGS

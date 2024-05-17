@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# for ubuntu jakiego to nie wiem
+
 LOGS="out.log"
 exec >$LOGS 2>&1
 if snap list | grep -qw "celluloid"; then
