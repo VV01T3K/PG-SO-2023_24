@@ -501,7 +501,7 @@ mergeMixedMediaFiles() {
     local video=$1
     local audio=$2
     video_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$video")
-    # audio_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 audio.mp3)
+    audio_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$audio")
     case $exit_code_global in
     1)
         combineMenu "$video" "$audio"
@@ -523,13 +523,16 @@ mergeMixedMediaFiles() {
 
     local output_file
     output_file=$(mktemp --suffix=".$target_format" --tmpdir="$temp_dir")
-    # mute original audio
-    # ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
-    # both audios with offset
-    # ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
-    # keep original audio but when new audio starts replace it
-    ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a]volume=enable='between(t,${new_audio_start_seconds},${new_audio_start_seconds}+$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$audio"))':volume=0[a2];[a2][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
-    ffmpeg_pid=$!
+    if [ "$mute_original" = "TRUE" ]; then
+        ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+    elif [ "$replace_audio" = "TRUE" ]; then
+        ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a]volume=enable='between(t,${new_audio_start_seconds},${new_audio_start_seconds}+${audio_duration})':volume=0[a2];[a2][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+    else
+        ffmpeg -i "$video" -itsoffset "$new_audio_start_seconds" -i "$audio" -filter_complex "[1:a]adelay=delays=${new_audio_start_seconds}s:all=1[a1];[0:a][a1]amix=inputs=2:duration=longest[a]" -map 0:v:0 -map "[a]" -c:v copy -c:a aac -b:a 128k -strict experimental -t "$video_duration" "$output_file" -y 2>ffmpeg_progress.log &
+        ffmpeg_pid=$!
+    fi
 
     local conversion_complete=0
     (
@@ -556,6 +559,13 @@ mergeMixedMediaFiles() {
         yad --title="Błąd przetwarzania" --text="Przetwarzanie nie zostało zakończone pomyślnie." --button=gtk-close:0
         return
     fi
+
+    if [ -n "$watermark_text" ]; then
+        local output_file_watermarked
+        output_file_watermarked=$(processMediaFile "$output_file" "$target_format" 0 0 0 "$watermark_text" "$watermark_font_size" "$watermark_color")
+        mv "$output_file_watermarked" "$output_file"
+    fi
+
     echo "$output_file"
 }
 
