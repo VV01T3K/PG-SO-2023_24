@@ -1,0 +1,129 @@
+.TH CONVEDIT 1 "May 2024" "0.00.01v pre-alpha-nightly-unstable" "Convedit Manual"
+.SH NAME
+Convedit \- Program do edycji plików multimedialnych.
+
+.SH SYNOPSIS
+.B convedit
+.RI [ -h ] [ -v ]
+.SH OPTIONS
+.TP
+.B \-h
+Wyświetla komunikat pomocy.
+.TP
+.B \-v
+Wyświetla informacje o wersji.
+
+.SH DESCRIPTION
+Convedit to program umożliwiający edycję i obróbkę plików wideo oraz audio. Program pozwala na wybranie, wczytanie na listę, a następnie odtworzenie lub edycję plików multimedialnych. 
+
+Program umożliwia połączenie kilku plików w jeden oraz zapis plików wyjściowych w różnych formatach.
+
+.SH OPCJE
+.TP
+\fBAdd {slect_file|select_files}\fR
+Dodanie plików na listę. Można dodać wiele kopii tego samego pliku.
+
+.TP
+\fBRemove {multi_select|single_select}\fR
+Usunięcie plików z listy.
+
+.TP
+\fBCombine {multi_select}\fR
+Otwarcie okna do łączenia plików.
+
+.TP
+\fBEdit {single_select}\fR
+Otwarcie okna do edycji pliku.
+
+.TP
+\fBPlay {single_select}\fR
+Odtworzenie pliku.
+
+.TP
+\fBAbout\fR
+Informacje o programie.
+
+.SH FILE SELECTION WINDOW
+Okno wyboru plików (aka default system file explorer).
+
+.TP
+\fBType_Filter {media, wideo, audio}\fR
+Filtracja plików po typie.
+
+.TP
+\fBSelect {multi_select|single_select}\fR
+Wybór pliku.
+
+.TP
+\fBOk\fR
+Zatwierdzenie wyboru.
+
+.TP
+\fBCancel\fR
+Anulowanie wyboru.
+
+.SH EDIT WINDOW
+Okno edycji pliku. Można edytować tylko jeden plik naraz. Obsługiwane formaty plików to: mp4, avi, mkv, webm, mp3, wav, flac, ogg.
+
+.TP
+\fBSave\fR
+Zapisanie jako nowy plik lub nadpisanie istniejącego.
+
+.TP
+\fBCancel\fR
+Anulowanie zmian.
+
+.SH COMBINE WINDOW
+Okno łączenia plików. Możliwe jest połączenie wielu plików audio i wideo w jeden plik.
+Umożliwia użytkownikowi zmianę formatu, wyciszenie oryginalnego dźwięku, zastąpienie części oryginalnego dźwięku, ustawienie nowego czasu rozpoczęcia, a jeśli plik jest wideo, dodanie znaku wodnego.
+
+.TP
+\fBMerge (video+audio)\fR
+Nałożenie na siebie plików wideo i audio.
+
+.TP
+\fBMerge (audio+audio)\fR
+Nałożenie na siebie plików audio w kolejności listy.
+
+.TP
+\fBConcat (video+video)\fR
+Połączenie plików wideo w kolejności listy.
+
+.TP
+\fBCancel\fR
+Anulowanie połączenia.
+
+.SH FUNKCJE
+
+.TP
+\fBaddNewFiles\fR
+Dodaje nowe pliki do listy. Używa okna dialogowego do wyboru plików z filtrami dla formatów wideo i audio.
+
+.TP
+\fBeditMediaFile\fR
+Edytuje wybrany plik multimedialny. Umożliwia modyfikacje takie jak przycinanie, zapętlanie oraz dodawanie znaków wodnych (dla wideo).
+
+.TP
+\fBabout\fR
+Wyświetla informacje o programie. Użytkownik może uzyskać dostęp do pomocy oraz szczegółowych informacji o wersji i autorach.
+
+.SH FORMATY WYJŚCIOWE
+Program obsługuje zapisywanie plików wyjściowych w formatach:
+
+.Wideo:
+.TP
+mp4, avi, mkv, webm
+
+.Audio:
+.TP
+mp3, wav, flac, ogg
+
+.SH UWAGI
+Niektóre pliki mogą nie działać poprawnie. W takim przypadku należy spróbować zmienić format wyjściowy. Program nie wykrywa wszystkich możliwych błędów przetwarzania, co należy uwzględnić przy zaawansowanej obróbce.
+
+.SH ZOBACZ TAKŻE
+ffmpeg(1), yad(1), celluloid(1)
+
+.SH AUTORZY
+Convedit został stworzony przez Wojciech Siwiec s197815.
+
