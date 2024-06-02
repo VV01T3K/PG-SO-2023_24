@@ -34,7 +34,7 @@ long count_blocks(const string& path, bool show_hidden) {
 
 void list_directory(const string& path, bool show_hidden, bool show_long,
                     bool sort_by_time, bool show_blocks, bool recursive,
-                    int level = 0) {
+                    bool one_per_line, int level = 0) {
     DIR* dir = opendir(path.c_str());
     if (dir == NULL) {
         cout << "Cannot open directory: " << path << endl;
@@ -66,14 +66,16 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
         struct stat s;
         stat(full_path.c_str(), &s);
 
-        for (int j = 0; j < level; j++) {
-            cout << "│   ";
-            if (show_blocks) printf("    ");
-        }
-        if (i == files.size() - 1) {
-            cout << "└── ";
-        } else {
-            cout << "├── ";
+        if (show_long || one_per_line) {
+            for (int j = 0; j < level; j++) {
+                cout << "│   ";
+                if (show_blocks) printf("    ");
+            }
+            if (i == files.size() - 1) {
+                cout << "└── ";
+            } else {
+                cout << "├── ";
+            }
         }
 
         if (show_blocks) printf("%4ld ", s.st_blocks / 2);
@@ -107,7 +109,11 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
             cout << file;
         }
 
-        printf("\n");
+        if (one_per_line || show_long) {
+            cout << endl;
+        } else {
+            cout << "  ";
+        }
 
         if (S_ISDIR(s.st_mode) && file != "." && file != ".." && recursive)
             list_directory(full_path, show_hidden, show_long, sort_by_time,
@@ -123,6 +129,7 @@ int main(int argc, char* argv[]) {
     bool sort_by_time = false;
     bool show_blocks = false;
     bool recursive = false;
+    bool one_per_line = false;
     string directory = ".";
 
     for (int i = 1; i < argc; i++) {
@@ -144,6 +151,9 @@ int main(int argc, char* argv[]) {
                     case 's':
                         show_blocks = true;
                         break;
+                    case '1':
+                        one_per_line = true;
+                        break;
                     default:
                         cout << "Invalid option: " << argv[i][j] << endl;
                         return 1;
@@ -154,9 +164,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("total %ld\n", count_blocks(directory, show_hidden));
-    printf("\033[34m%s\033[0m\n", directory.c_str());
+    if (show_long) printf("total %ld\n", count_blocks(directory, show_hidden));
+    if (show_long || one_per_line || recursive)
+        printf("\033[34m%s\033[0m\n", directory.c_str());
     list_directory(directory, show_hidden, show_long, sort_by_time, show_blocks,
-                   recursive);
+                   recursive, one_per_line);
+    if (!(show_long || one_per_line)) printf("\n");
     return 0;
 }
