@@ -221,9 +221,10 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
             cout << "  ";
         }
 
-        if (S_ISDIR(s.st_mode) && file != "." && file != ".." && recursive)
+        if (S_ISDIR(s.st_mode) && file != "." && file != ".." && recursive) {
             list_directory(full_path, show_hidden, show_long, sort_by_time,
-                           show_blocks, recursive, level + 1);
+                           show_blocks, recursive, one_per_line, level + 1);
+        }
     }
 
     return;
@@ -295,10 +296,10 @@ int main(int argc, char* argv[]) {
     }
 
     if (show_long) printf("total %ld\n", count_blocks(directory, show_hidden));
-    if (show_long || one_per_line || recursive)
+    if (show_long || one_per_line)
         printf("\033[34m%s\033[0m\n", directory.c_str());
     list_directory(directory, show_hidden, show_long, sort_by_time, show_blocks,
                    recursive, one_per_line);
-    if (!(show_long || one_per_line)) printf("\n");
+    if (!one_per_line && !show_long && !recursive) cout << endl;
     return 0;
 }
