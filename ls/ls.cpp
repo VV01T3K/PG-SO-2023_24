@@ -12,6 +12,22 @@
 
 using namespace std;
 
+/**
+ * The function `count_blocks` calculates the total number of blocks used by
+ * files in a directory, excluding hidden files based on the `show_hidden`
+ * parameter.
+ *
+ * @param path The `path` parameter is a string that represents the directory
+ * path for which you want to count the blocks.
+ * @param show_hidden The `show_hidden` parameter is a boolean flag that
+ * determines whether hidden files and directories should be included in the
+ * count. If `show_hidden` is set to true, all files and directories, including
+ * those whose names start with a dot (.), will be counted. If `show_hidden` is
+ * set
+ *
+ * @return The function `count_blocks` returns the total number of blocks used
+ * by the files in the specified directory `path`, divided by 2.
+ */
 long count_blocks(const string& path, bool show_hidden) {
     DIR* dir = opendir(path.c_str());
     if (dir == NULL) {
@@ -32,6 +48,49 @@ long count_blocks(const string& path, bool show_hidden) {
     return total_blocks / 2;
 }
 
+/**
+ * The function `list_directory` recursively lists files and directories in a
+ * given path with various display options.
+ *
+ * @param path The `path` parameter is a string that represents the directory
+ * path for which you want to list the contents.
+ * @param show_hidden The `show_hidden` parameter in the `list_directory`
+ * function determines whether hidden files (files starting with a dot) should
+ * be displayed or not. If `show_hidden` is set to `true`, hidden files will be
+ * included in the list of files to be displayed. If set to `false
+ * @param show_long The `show_long` parameter in the `list_directory` function
+ * determines whether to display detailed information about each file in the
+ * directory. If `show_long` is set to `true`, the function will display file
+ * permissions, owner, group, size, and modification time in addition to the
+ * file name.
+ * @param sort_by_time The `sort_by_time` parameter in the `list_directory`
+ * function determines whether the files in the directory should be sorted by
+ * their modification time. If `sort_by_time` is set to `true`, the files will
+ * be sorted in descending order based on their modification time. If it's set
+ * to
+ * @param show_blocks The `show_blocks` parameter in the `list_directory`
+ * function determines whether to display the number of 512-byte blocks
+ * allocated to the file. If `show_blocks` is set to `true`, the function will
+ * display the number of blocks allocated for each file in the directory
+ * listing. If `show
+ * @param recursive The `recursive` parameter in the `list_directory` function
+ * determines whether the function should recursively list the contents of
+ * subdirectories. If `recursive` is set to `true`, the function will continue
+ * to list the contents of subdirectories within the specified directory. If
+ * `recursive` is set to `false
+ * @param one_per_line The `one_per_line` parameter in the `list_directory`
+ * function is a boolean flag that determines whether each file or directory
+ * entry should be displayed on a separate line. If `one_per_line` is set to
+ * `true`, each entry will be printed on a new line. If it is set
+ * @param level The `level` parameter in the `list_directory` function is used
+ * to keep track of the depth of recursion when listing directories. It starts
+ * at 0 for the initial directory and increments by 1 for each level of
+ * recursion into subdirectories. This parameter helps in formatting the output
+ * to display a visual
+ *
+ * @return The function `list_directory` is returning `void`, which means it
+ * does not return any value.
+ */
 void list_directory(const string& path, bool show_hidden, bool show_long,
                     bool sort_by_time, bool show_blocks, bool recursive,
                     bool one_per_line, int level = 0) {
@@ -123,6 +182,23 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
     return;
 }
 
+/**
+ * The main function processes command line arguments to display directory
+ * contents with various options.
+ *
+ * @param argc The `argc` parameter in the `main` function represents the number
+ * of arguments passed to the program when it is executed, including the name of
+ * the program itself.
+ * @param argv The `argv` parameter in the `main` function is an array of
+ * C-style strings (char arrays) that represent the command-line arguments
+ * passed to the program when it is executed. The first element `argv[0]`
+ * typically contains the name of the program being executed, and subsequent
+ * elements contain
+ *
+ * @return The `main` function is returning an integer value, specifically `0`
+ * if the program runs successfully without any errors. If there is an error in
+ * processing the command line arguments, the function will return `1`.
+ */
 int main(int argc, char* argv[]) {
     bool show_hidden = false;
     bool show_long = false;
