@@ -1,6 +1,6 @@
 #include <dirent.h>
-#include <grp.h>  // Include for getgrgid
-#include <pwd.h>  // Include for getpwuid
+#include <grp.h>
+#include <pwd.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -11,6 +11,26 @@
 #include <vector>
 
 using namespace std;
+
+long count_blocks(const string& path, bool show_hidden) {
+    DIR* dir = opendir(path.c_str());
+    if (dir == NULL) {
+        cout << "Cannot open directory: " << path << endl;
+        return 0;
+    }
+
+    long total_blocks = 0;
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!show_hidden && entry->d_name[0] == '.') continue;
+        struct stat s;
+        stat((path + "/" + entry->d_name).c_str(), &s);
+        total_blocks += s.st_blocks;
+    }
+    closedir(dir);
+
+    return total_blocks / 2;
+}
 
 void list_directory(const string& path, bool show_hidden, bool show_long,
                     bool sort_by_time, bool show_blocks, bool recursive,
@@ -49,38 +69,30 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
         // Print indentation
         for (int j = 0; j < level; j++) {
             cout << "│   ";
+            if (show_blocks) printf("    ");
         }
-        if (level > 0) {
-            if (i == files.size() - 1) {
-                cout << "└── ";
-            } else {
-                cout << "├── ";
-            }
+        if (i == files.size() - 1) {
+            cout << "└── ";
+        } else {
+            cout << "├── ";
         }
+        if (show_blocks) printf("%4ld ", s.st_blocks / 2);
 
         if (show_long) {
-            cout << (S_ISDIR(s.st_mode) ? "d" : "-");
-            cout << (s.st_mode & S_IRUSR ? "r" : "-");
-            cout << (s.st_mode & S_IWUSR ? "w" : "-");
-            cout << (s.st_mode & S_IXUSR ? "x" : "-");
-            cout << (s.st_mode & S_IRGRP ? "r" : "-");
-            cout << (s.st_mode & S_IWGRP ? "w" : "-");
-            cout << (s.st_mode & S_IXGRP ? "x" : "-");
-            cout << (s.st_mode & S_IROTH ? "r" : "-");
-            cout << (s.st_mode & S_IWOTH ? "w" : "-");
-            cout << (s.st_mode & S_IXOTH ? "x" : "-");
-            cout << " ";
-            cout << s.st_nlink << " ";
-            cout << getpwuid(s.st_uid)->pw_name << " ";
-            cout << getgrgid(s.st_gid)->gr_name << " ";
-            cout << s.st_size << " ";
-            std::string timeStr = ctime(&s.st_mtime);
-            timeStr = timeStr.substr(0, timeStr.size() - 1);
-            cout << timeStr;
-            cout << " ";
+            printf("%c%c%c%c%c%c%c%c%c%c %4ld %8s %8s %8ld %.24s ",
+                   S_ISDIR(s.st_mode) ? 'd' : '-',
+                   s.st_mode & S_IRUSR ? 'r' : '-',
+                   s.st_mode & S_IWUSR ? 'w' : '-',
+                   s.st_mode & S_IXUSR ? 'x' : '-',
+                   s.st_mode & S_IRGRP ? 'r' : '-',
+                   s.st_mode & S_IWGRP ? 'w' : '-',
+                   s.st_mode & S_IXGRP ? 'x' : '-',
+                   s.st_mode & S_IROTH ? 'r' : '-',
+                   s.st_mode & S_IWOTH ? 'w' : '-',
+                   s.st_mode & S_IXOTH ? 'x' : '-', s.st_nlink,
+                   getpwuid(s.st_uid)->pw_name, getgrgid(s.st_gid)->gr_name,
+                   s.st_size, ctime(&s.st_mtime));
         }
-
-        if (show_blocks) cout << s.st_blocks / 2 << " ";
 
         if (isatty(STDOUT_FILENO)) {
             if (S_ISDIR(s.st_mode)) {
@@ -95,7 +107,7 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
             cout << file;
         }
 
-        cout << endl;
+        printf("\n");
 
         if (S_ISDIR(s.st_mode) && file != "." && file != ".." && recursive)
             list_directory(full_path, show_hidden, show_long, sort_by_time,
@@ -141,6 +153,9 @@ int main(int argc, char* argv[]) {
             directory = argv[i];
         }
     }
+
+    printf("total %ld\n", count_blocks(directory, show_hidden));
+    printf("\033[34m%s\033[0m\n", directory.c_str());
     list_directory(directory, show_hidden, show_long, sort_by_time, show_blocks,
                    recursive);
     return 0;
