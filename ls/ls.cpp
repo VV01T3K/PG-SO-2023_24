@@ -129,20 +129,20 @@ int main(int argc, char* argv[]) {
         if (argv[i][0] == '-') {
             for (int j = 1; argv[i][j] != '\0'; j++) {
                 switch (argv[i][j]) {
-                    case 'a':
-                        show_hidden = true;
-                        break;
                     case 'l':
                         show_long = true;
+                        break;
+                    case 'R':
+                        recursive = true;
+                        break;
+                    case 'a':
+                        show_hidden = true;
                         break;
                     case 't':
                         sort_by_time = true;
                         break;
                     case 's':
                         show_blocks = true;
-                        break;
-                    case 'R':
-                        recursive = true;
                         break;
                     default:
                         cout << "Invalid option: " << argv[i][j] << endl;
