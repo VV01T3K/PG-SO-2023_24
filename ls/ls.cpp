@@ -2,6 +2,7 @@
 #include <grp.h>  // Include for getgrgid
 #include <pwd.h>  // Include for getpwuid
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <cstring>
@@ -80,7 +81,20 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
         }
 
         if (show_blocks) cout << s.st_blocks / 2 << " ";
-        cout << file;
+
+        if (isatty(STDOUT_FILENO)) {
+            if (S_ISDIR(s.st_mode)) {
+                cout << "\033[1;34m" << file << "\033[0m";
+            } else if (s.st_mode & S_IXUSR || s.st_mode & S_IXGRP ||
+                       s.st_mode & S_IXOTH) {
+                cout << "\033[1;32m" << file << "\033[0m";
+            } else {
+                cout << file;
+            }
+        } else {
+            cout << file;
+        }
+
         cout << endl;
 
         if (S_ISDIR(s.st_mode) && file != "." && file != ".." && recursive)
