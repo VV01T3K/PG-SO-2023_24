@@ -96,6 +96,32 @@ long count_blocks(const string& path, bool show_hidden) {
 }
 
 /**
+ * The function `isArchive` checks if a given file name contains any of the
+ * specified archive extensions.
+ *
+ * @param name The `isArchive` function checks if the given file name contains
+ * any of the specified archive extensions. If the file name contains any of the
+ * extensions ".tar", ".zip", ".rar", ".gz",
+ * ".bz2", or ".7z", the function returns `true`, indicating that the file
+ *
+ * @return The function `isArchive` returns a boolean value - `true` if the
+ * input `name` contains any of the specified archive extensions (".tar",
+ * ".zip", ".rar", ".gz", ".bz2", ".7z"), and `false` otherwise.
+ */
+bool isArchive(const char* name) {
+    const char* archiveExtensions[] = {".tar", ".zip", ".rar", ".gz",
+                                       ".bz2", ".7z",  nullptr};
+
+    for (int i = 0; archiveExtensions[i] != nullptr; ++i) {
+        if (strstr(name, archiveExtensions[i]) != nullptr) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * The function `list_directory` recursively lists files and directories in a
  * given path with various display options.
  *
@@ -143,7 +169,7 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
                     bool one_per_line, int level = 0) {
     DIR* dir = opendir(path.c_str());
     if (dir == NULL) {
-        cout << "Cannot open directory: " << path;
+        cout << "Cannot open directory: " << path << endl;
         return;
     }
 
@@ -208,6 +234,8 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
             } else if (s.st_mode & S_IXUSR || s.st_mode & S_IXGRP ||
                        s.st_mode & S_IXOTH) {
                 cout << "\033[1;32m" << file << "\033[0m";
+            } else if (isArchive(file.c_str())) {
+                cout << "\033[1;31m" << file << "\033[0m";
             } else {
                 cout << file;
             }
