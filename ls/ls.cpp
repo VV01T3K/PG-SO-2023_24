@@ -66,7 +66,6 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
         struct stat s;
         stat(full_path.c_str(), &s);
 
-        // Print indentation
         for (int j = 0; j < level; j++) {
             cout << "│   ";
             if (show_blocks) printf("    ");
@@ -76,6 +75,7 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
         } else {
             cout << "├── ";
         }
+
         if (show_blocks) printf("%4ld ", s.st_blocks / 2);
 
         if (show_long) {
