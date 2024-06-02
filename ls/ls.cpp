@@ -1,3 +1,16 @@
+// * Usage: ls [OPTION]... [FILE]...
+// * List information about the FILEs (the current directory by default).
+// * Sort entries alphabetically if none of -t is specified.
+
+// * Options:
+// *   -l   use a long listing format
+// *   -R   list subdirectories recursively
+// *   -a   do not ignore entries starting with .
+// *   -t   sort by modification time, newest first
+// *   -s   print the allocated size of each file, in blocks
+// *   -1   list one file per line
+// *   -h   show this help message and exit
+
 #include <dirent.h>
 #include <grp.h>
 #include <pwd.h>
@@ -11,6 +24,26 @@
 #include <vector>
 
 using namespace std;
+
+/**
+ * The function `print_help()` provides a usage guide and options summary for
+ * the ls command in C++.
+ */
+void print_help() {
+    cout << "Usage: ls [OPTION]... [FILE]...\n";
+    cout << "List information about the FILEs (the current directory by "
+            "default).\n";
+    cout << "Sort entries alphabetically if none of -t is specified.\n\n";
+
+    cout << "Options:\n";
+    cout << "  -l\tuse a long listing format\n";
+    cout << "  -R\tlist subdirectories recursively\n";
+    cout << "  -a\tdo not ignore entries starting with .\n";
+    cout << "  -t\tsort by modification time, newest first\n";
+    cout << "  -s\tprint the allocated size of each file, in blocks\n";
+    cout << "  -1\tlist one file per line\n";
+    cout << "  -h\tshow this help message and exit\n";
+}
 
 /**
  * The function `count_blocks` calculates the total number of blocks used by
@@ -210,6 +243,10 @@ int main(int argc, char* argv[]) {
 
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '-') {
+            if (argv[i][1] == '-' && strcmp(argv[i], "--help") == 0) {
+                print_help();
+                return 0;
+            }
             for (int j = 1; argv[i][j] != '\0'; j++) {
                 switch (argv[i][j]) {
                     case 'l':
@@ -230,6 +267,9 @@ int main(int argc, char* argv[]) {
                     case '1':
                         one_per_line = true;
                         break;
+                    case 'h':
+                        print_help();
+                        return 0;
                     default:
                         cout << "Invalid option: " << argv[i][j] << endl;
                         return 1;
