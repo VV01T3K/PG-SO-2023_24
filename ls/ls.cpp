@@ -37,7 +37,7 @@ void list_directory(const string& path, bool show_hidden, bool show_long,
                     bool one_per_line, int level = 0) {
     DIR* dir = opendir(path.c_str());
     if (dir == NULL) {
-        cout << "Cannot open directory: " << path << endl;
+        cout << "Cannot open directory: " << path;
         return;
     }
 
