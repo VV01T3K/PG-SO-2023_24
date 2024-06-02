@@ -1,3 +1,17 @@
+// ! Author           : Wojeciech Siwiec s197815
+// ! Email            : s197815@student.pg.edu.pl
+// ! Gitlab           : Wojciech Siwiec @p1468250
+// ! Created On       : 31.05.2024
+// ! Last Modified By : Wojeciech Siwiec s197815
+// ! Last Modified On : 2.06.2024
+// ! Version          : 0.5v
+// !
+// ! Description      :
+// ! A simple implementation of the ls command in C++.
+// !
+// ! Licensed under GPL (see /usr/share/common-licenses/GPL for more details
+// ! or contact # the Free Software Foundation for a copy)
+
 // * Usage: ls [OPTION]... [FILE]...
 // * List information about the FILEs (the current directory by default).
 // * Sort entries alphabetically if none of -t is specified.
